@@ -1,0 +1,228 @@
+* { box-sizing: border-box; }
+
+body {
+  margin: 0;
+  background: #0b3d24;
+  color: white;
+  font-family: -apple-system, "Segoe UI", Roboto, Arial, sans-serif;
+  min-height: 100vh;
+}
+
+.hidden { display: none !important; }
+
+.screen {
+  min-height: 100vh;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  padding: 16px;
+}
+
+.menu-box {
+  max-width: 420px;
+  width: 100%;
+  margin-top: 6vh;
+  text-align: center;
+}
+
+h1 {
+  font-size: 1.8em;
+  margin-bottom: 20px;
+  color: #ffd166;
+}
+
+h2 { color: #ffd166; }
+
+.profile-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 10px;
+  justify-content: center;
+}
+
+.profile-row label { color: #a5d6a7; font-size: 0.9em; }
+
+input[type="text"], input[type="number"] {
+  background: #123f28;
+  border: 1px solid #2e7d32;
+  color: white;
+  padding: 8px 10px;
+  border-radius: 6px;
+  font-size: 1em;
+}
+
+.chips-display {
+  font-size: 1.3em;
+  font-weight: bold;
+  color: #ffd166;
+  margin: 10px 0 20px;
+}
+
+.btn {
+  display: block;
+  width: 100%;
+  padding: 12px;
+  margin: 6px 0;
+  border: none;
+  border-radius: 8px;
+  font-size: 1.05em;
+  font-weight: bold;
+  color: white;
+  cursor: pointer;
+}
+
+.btn:disabled { opacity: 0.4; cursor: not-allowed; }
+
+.btn-green { background: #2e7d32; }
+.btn-blue { background: #1565c0; }
+.btn-red { background: #c62828; }
+.btn-grey { background: #455a64; }
+.btn-purple { background: #6a1b9a; }
+
+.hint {
+  color: #a5d6a7;
+  font-size: 0.85em;
+  margin-top: 16px;
+  line-height: 1.4;
+}
+.hint.small { font-size: 0.75em; opacity: 0.8; }
+
+#join-box {
+  margin-top: 10px;
+  padding-top: 10px;
+  border-top: 1px solid #2e7d32;
+}
+#join-box input {
+  width: 100%;
+  text-align: center;
+  text-transform: uppercase;
+  letter-spacing: 3px;
+  margin-bottom: 8px;
+}
+
+.room-code {
+  font-size: 1.6em;
+  font-weight: bold;
+  color: #ffd166;
+  background: #123f28;
+  padding: 14px;
+  border-radius: 8px;
+  letter-spacing: 4px;
+  margin: 14px 0;
+  word-break: break-all;
+}
+
+#waiting-players {
+  margin: 14px 0;
+  text-align: left;
+  background: #123f28;
+  border-radius: 8px;
+  padding: 10px 14px;
+}
+#waiting-players div { padding: 3px 0; }
+
+/* ---------- игровой стол ---------- */
+
+#screen-table {
+  padding-bottom: 90px; /* место под нижнюю панель действий */
+}
+
+.table-top {
+  text-align: center;
+  margin-bottom: 6px;
+}
+.pot-label { font-size: 1.4em; font-weight: bold; color: #ffd166; }
+.stage-label { font-size: 0.9em; color: #c8e6c9; margin-top: 4px; }
+
+.cards-row {
+  display: flex;
+  justify-content: center;
+  gap: 6px;
+  flex-wrap: wrap;
+  margin: 10px 0;
+  min-height: 60px;
+}
+.cards-row.hole { min-height: 76px; }
+
+.card {
+  background: white;
+  color: black;
+  border-radius: 6px;
+  width: 42px;
+  height: 60px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-weight: bold;
+  font-size: 1.1em;
+  box-shadow: 0 2px 3px rgba(0,0,0,0.4);
+  flex-shrink: 0;
+}
+.card.red { color: #c62828; }
+.card.back {
+  background: linear-gradient(135deg, #1565c0, #0d47a1);
+  color: white;
+  font-size: 1.4em;
+}
+
+.players-row {
+  display: flex;
+  justify-content: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin: 10px 0;
+}
+
+.player-box {
+  background: #123f28;
+  border: 2px solid #1b5e37;
+  border-radius: 8px;
+  padding: 8px 10px;
+  min-width: 110px;
+  text-align: center;
+}
+.player-box.turn { border-color: #ffd166; }
+.player-name { font-weight: bold; font-size: 0.9em; }
+.player-chips { color: #c8e6c9; font-size: 0.8em; }
+.player-status { color: #ef9a9a; font-size: 0.75em; }
+.player-bet { color: #90caf9; font-size: 0.8em; }
+.player-cards { display: flex; justify-content: center; gap: 2px; margin-top: 4px; }
+.player-cards .card { width: 26px; height: 36px; font-size: 0.7em; }
+
+.log-box {
+  background: #062418;
+  color: #c8e6c9;
+  font-family: Consolas, monospace;
+  font-size: 0.75em;
+  padding: 8px;
+  border-radius: 6px;
+  max-width: 700px;
+  width: 100%;
+  height: 90px;
+  overflow-y: auto;
+  white-space: pre-line;
+  margin: 10px auto;
+}
+
+.action-bar {
+  position: fixed;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  background: #062418;
+  display: flex;
+  gap: 4px;
+  padding: 8px;
+  flex-wrap: wrap;
+  justify-content: center;
+  border-top: 2px solid #1b5e37;
+}
+.small-btn { width: auto; padding: 10px 12px; margin: 0; flex: 1 1 70px; }
+#raise-amount { width: 70px; text-align: center; }
+
+.leave-btn { max-width: 300px; margin: 16px auto; }
+
+@media (min-width: 700px) {
+  .menu-box { margin-top: 10vh; }
+}

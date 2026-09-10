@@ -1,0 +1,84 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+<title>Покер Онлайн</title>
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="icon" href="icon-192.png">
+<link rel="apple-touch-icon" href="icon-192.png">
+<meta name="theme-color" content="#0b3d24">
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+<!-- ЭКРАН: ГЛАВНОЕ МЕНЮ -->
+<div id="screen-menu" class="screen">
+  <div class="menu-box">
+    <h1>♠ ПОКЕР ОНЛАЙН ♥</h1>
+    <div class="profile-row">
+      <label>Ваше имя:</label>
+      <input id="input-name" type="text" maxlength="20" placeholder="Игрок">
+    </div>
+    <div class="chips-display">Фишки: <span id="wallet-chips">1000</span></div>
+
+    <button id="btn-create" class="btn btn-green">Создать стол</button>
+    <button id="btn-join" class="btn btn-blue">Присоединиться по коду</button>
+
+    <div id="join-box" class="hidden">
+      <input id="input-code" type="text" maxlength="5" placeholder="КОД СТОЛА" autocapitalize="characters">
+      <button id="btn-join-confirm" class="btn btn-blue">Войти</button>
+      <button id="btn-join-cancel" class="btn btn-grey">Отмена</button>
+    </div>
+
+    <p class="hint">
+      Играть можно и с компьютера, и с телефона — все заходят на один и тот же
+      адрес сервера. Хост нажимает «Создать стол» и делится коротким кодом
+      с остальными игроками (до 5 человек за столом).
+    </p>
+    <p id="connection-hint" class="hint small"></p>
+  </div>
+</div>
+
+<!-- ЭКРАН: ОЖИДАНИЕ ЗА СТОЛОМ -->
+<div id="screen-waiting" class="screen hidden">
+  <div class="menu-box">
+    <h2>Стол создан</h2>
+    <div id="room-code-display" class="room-code"></div>
+    <p class="hint">Передайте этот код друзьям — им нужно нажать «Присоединиться по коду» и ввести его.</p>
+    <div id="waiting-players"></div>
+    <p id="waiting-info" class="hint">Ожидание игроков...</p>
+    <button id="btn-start-hand" class="btn btn-green hidden">Начать раздачу сейчас</button>
+    <button id="btn-leave-waiting" class="btn btn-red">Покинуть стол</button>
+  </div>
+</div>
+
+<!-- ЭКРАН: ИГРОВОЙ СТОЛ -->
+<div id="screen-table" class="screen hidden">
+  <div class="table-top">
+    <div id="pot-label" class="pot-label">Банк: 0</div>
+    <div id="stage-label" class="stage-label"></div>
+  </div>
+
+  <div id="community-cards" class="cards-row"></div>
+
+  <div id="players-row" class="players-row"></div>
+
+  <div id="hole-cards" class="cards-row hole"></div>
+
+  <div id="log-box" class="log-box"></div>
+
+  <div class="action-bar">
+    <button id="act-fold" class="btn btn-red small-btn">Фолд</button>
+    <button id="act-check" class="btn btn-grey small-btn">Чек</button>
+    <button id="act-call" class="btn btn-blue small-btn">Колл</button>
+    <input id="raise-amount" type="number" min="10" step="10" value="20">
+    <button id="act-raise" class="btn btn-green small-btn">Рейз</button>
+    <button id="act-allin" class="btn btn-purple small-btn">Ва-банк</button>
+  </div>
+  <button id="btn-leave-table" class="btn btn-red leave-btn">Покинуть стол</button>
+</div>
+
+<script src="app.js"></script>
+</body>
+</html>
