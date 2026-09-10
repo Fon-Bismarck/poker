@@ -23,7 +23,7 @@ from ws_transport import (
 )
 from poker_core import Table
 
-DEFAULT_PORT = 8000
+DEFAULT_PORT = int(os.environ.get("PORT", 8000))
 WEB_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "web")
 
 MIME_OVERRIDES = {
@@ -303,10 +303,15 @@ class PokerServer:
 def run_server_blocking(port=DEFAULT_PORT):
     srv = PokerServer(port)
     srv.start()
-    ip = get_local_ip()
     print(f"Сервер покера запущен на порту {port}")
-    print(f"Откройте в браузере на этом компьютере: http://localhost:{port}")
-    print(f"Друзья в этой же Wi-Fi/локальной сети открывают: http://{ip}:{port}")
+    if os.environ.get("PORT"):
+        # Запущено в облаке (например, Render) — там свой публичный адрес,
+        # локальный IP этой машины никого не интересует.
+        print("Сервер работает в облаке. Ссылка для игроков — та, что выдал хостинг.")
+    else:
+        ip = get_local_ip()
+        print(f"Откройте в браузере на этом компьютере: http://localhost:{port}")
+        print(f"Друзья в этой же Wi-Fi/локальной сети открывают: http://{ip}:{port}")
     try:
         while True:
             time.sleep(1)
