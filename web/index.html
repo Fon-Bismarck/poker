@@ -12,9 +12,10 @@
 </head>
 <body>
 
-<!-- Плавающие кнопки в углах: бонус и помощь. Видны на любом экране -->
+<!-- Плавающие элементы в углах. Видимость переключается в JS в зависимости от экрана -->
 <button id="daily-bonus" class="corner-btn bonus-btn">🎁 Бонус</button>
 <button id="help-btn" class="corner-btn help-fab">❓</button>
+<div id="room-code-badge" class="corner-btn code-badge hidden">Код: -----</div>
 
 <!-- ЭКРАН: ГЛАВНОЕ МЕНЮ -->
 <div id="screen-menu" class="screen">
@@ -28,6 +29,7 @@
 
     <button id="btn-create" class="btn btn-green">Создать стол</button>
     <button id="btn-join" class="btn btn-blue">Присоединиться по коду</button>
+    <button id="btn-shop" class="btn btn-purple">🛍 Магазин фонов</button>
 
     <div id="join-box" class="hidden">
       <input id="input-code" type="text" maxlength="5" placeholder="КОД СТОЛА" autocapitalize="characters">
@@ -37,28 +39,16 @@
 
     <p class="hint">
       Играть можно и с компьютера, и с телефона — все заходят на один и тот же
-      адрес сервера. Хост нажимает «Создать стол» и делится коротким кодом
-      с остальными игроками (до 5 человек за столом).
+      адрес сервера. Можно заходить за стол в любой момент, даже посреди
+      раздачи — просто подключитесь к следующей раздаче.
     </p>
   </div>
 </div>
 
-<!-- ЭКРАН: ОЖИДАНИЕ ЗА СТОЛОМ -->
-<div id="screen-waiting" class="screen hidden">
-  <div class="menu-box">
-    <h2>Стол создан</h2>
-    <div id="room-code-display" class="room-code"></div>
-    <p class="hint">Передайте этот код друзьям — им нужно нажать «Присоединиться по коду» и ввести его.</p>
-    <div id="waiting-players"></div>
-    <p id="waiting-info" class="hint">Ожидание игроков...</p>
-    <button id="btn-start-hand" class="btn btn-green hidden">Начать раздачу сейчас</button>
-    <button id="btn-leave-waiting" class="btn btn-red">Покинуть стол</button>
-  </div>
-</div>
-
-<!-- ЭКРАН: ИГРОВОЙ СТОЛ -->
+<!-- ЭКРАН: ИГРОВОЙ СТОЛ (используется и для ожидания игроков, и для игры) -->
 <div id="screen-table" class="screen hidden">
   <div id="stage-label" class="stage-label"></div>
+  <div id="turn-timer" class="turn-timer"></div>
 
   <div class="poker-table-wrap">
     <div class="poker-table-oval" id="poker-oval">
@@ -88,7 +78,7 @@
 <!-- МОДАЛКА: выбор бай-ина (при создании / входе за стол) -->
 <div id="buyin-modal" class="modal-overlay hidden">
   <div class="modal-box">
-    <h3 id="buyin-title">Сколько фишек занести за стол?</h3>
+    <h3>Сколько фишек занести за стол?</h3>
     <p class="hint">Это будет ваш стек за этим столом. Остальное останется в банке.</p>
     <input id="buyin-amount" type="number" min="1" step="10">
     <p class="hint small">Доступно в банке: <span id="buyin-bank-max">0</span></p>
@@ -101,15 +91,10 @@
 <div id="rebuy-modal" class="modal-overlay hidden">
   <div class="modal-box">
     <h3>Ваши фишки за столом закончились</h3>
-    <div id="rebuy-with-bank">
-      <p class="hint">Можно довнести ещё из банка, чтобы продолжить игру.</p>
-      <input id="rebuy-amount" type="number" min="1" step="10">
-      <p class="hint small">Доступно в банке: <span id="rebuy-bank-max">0</span></p>
-      <button id="rebuy-confirm" class="btn btn-green">Довнести и играть</button>
-    </div>
-    <div id="rebuy-no-bank" class="hidden">
-      <p class="hint">В банке тоже не осталось фишек. Получите дневной бонус (кнопка «🎁 Бонус» в углу) или дождитесь его.</p>
-    </div>
+    <p class="hint">Можно довнести ещё из банка, чтобы продолжить игру.</p>
+    <input id="rebuy-amount" type="number" min="1" step="10">
+    <p class="hint small">Доступно в банке: <span id="rebuy-bank-max">0</span></p>
+    <button id="rebuy-confirm" class="btn btn-green">Довнести и играть</button>
     <button id="rebuy-leave" class="btn btn-red">Покинуть стол</button>
   </div>
 </div>
@@ -132,6 +117,7 @@
       <li><b>Пара</b></li>
       <li><b>Старшая карта</b> — если ничего не собралось</li>
     </ol>
+    <p class="hint small">Если у двух игроков в итоге абсолютно одинаковая лучшая комбинация (вплоть до кикеров) — банк делится между ними поровну.</p>
 
     <h4>Кнопки действий</h4>
     <ul class="action-legend">
@@ -141,6 +127,7 @@
       <li><b>Рейз</b> — повысить ставку на сумму в поле рядом</li>
       <li><b>Ва-банк</b> — поставить все свои фишки за столом</li>
     </ul>
+    <p class="hint small">На каждый ход даётся ограниченное время (таймер сверху). Не успели — сработает автоматический чек или фолд.</p>
 
     <h4>Порядок игры</h4>
     <p class="hint">
@@ -151,6 +138,56 @@
     </p>
 
     <button id="help-close" class="btn btn-blue">Понятно</button>
+  </div>
+</div>
+
+<!-- МОДАЛКА: настройки стола (только при создании) — фон, минимальный вход, блайнды -->
+<div id="table-setup-modal" class="modal-overlay hidden">
+  <div class="modal-box">
+    <h3>Настройки стола</h3>
+
+    <p class="hint" style="margin-top:0;">Фон стола (стол посередине всегда остаётся зелёным — для читаемости карт)</p>
+    <div id="setup-bg-grid" class="bg-grid"></div>
+    <button id="setup-open-shop" class="btn btn-purple small-inline">🛍 Магазин фонов</button>
+
+    <p class="hint">Минимальный вход за стол (фишек)</p>
+    <input id="setup-min-buyin" type="number" min="0" step="10" value="0">
+
+    <p class="hint">Блайнды в начале раздачи</p>
+    <div class="two-col">
+      <div>
+        <label class="small-label">Минимальный (SB)</label>
+        <input id="setup-small-blind" type="number" min="1" step="1" value="10">
+      </div>
+      <div>
+        <label class="small-label">Максимальный (BB)</label>
+        <input id="setup-big-blind" type="number" min="2" step="1" value="20">
+      </div>
+    </div>
+
+    <button id="setup-confirm" class="btn btn-green">Далее</button>
+    <button id="setup-cancel" class="btn btn-grey">Отмена</button>
+  </div>
+</div>
+
+<!-- МОДАЛКА: магазин фонов -->
+<div id="shop-modal" class="modal-overlay hidden">
+  <div class="modal-box help-box">
+    <h3>Магазин фонов</h3>
+    <p class="hint" style="margin-top:0;">Открытые фоны можно использовать при создании стола. Сам стол посередине экрана всегда остаётся зелёным.</p>
+    <div id="shop-grid" class="bg-grid shop-grid"></div>
+
+    <h4>Свой фон (изображение)</h4>
+    <p class="hint">Разово откройте возможность загружать собственную картинку фона.</p>
+    <div id="shop-custom-locked">
+      <button id="shop-buy-custom" class="btn btn-green">Открыть за 100 000</button>
+    </div>
+    <div id="shop-custom-unlocked" class="hidden">
+      <input id="shop-custom-file" type="file" accept="image/*">
+      <p class="hint small">Картинка сохраняется в этом браузере. Лучше использовать что-то некрупное — большие файлы могут не поместиться в память браузера.</p>
+    </div>
+
+    <button id="shop-close" class="btn btn-blue">Закрыть</button>
   </div>
 </div>
 

@@ -6,6 +6,7 @@
 
 import random
 import itertools
+import time
 from collections import Counter
 
 RANKS = list(range(2, 15))  # 2..14 (14 = туз)
@@ -140,10 +141,15 @@ class Table:
     MAX_PLAYERS = 5
     SMALL_BLIND = 10
     BIG_BLIND = 20
+    TURN_SECONDS = 20  # сколько секунд даётся на ход, потом автодействие
 
-    def __init__(self, code, host_id):
+    def __init__(self, code, host_id, small_blind=None, big_blind=None, min_buyin=0):
         self.code = code
         self.host_id = host_id
+        if small_blind and big_blind and big_blind > small_blind:
+            self.SMALL_BLIND = int(small_blind)
+            self.BIG_BLIND = int(big_blind)
+        self.min_buyin = max(0, int(min_buyin or 0))
         self.players = {}          # id -> Player
         self.seat_order = []       # список id в порядке посадки
         self.dealer_pos = -1
@@ -158,12 +164,16 @@ class Table:
         self.acted_this_round = set()
         self.log = []
         self.hand_number = 0
+        self.turn_token = 0        # увеличивается при каждой смене хода (для отмены старых таймеров)
+        self.turn_deadline = None  # unix-время, к которому нужно походить
 
     # ---------- управление игроками ----------
 
     def add_player(self, pid, name, chips):
         if len(self.players) >= self.MAX_PLAYERS:
             return False, "Стол уже заполнен (максимум 5 игроков)"
+        if self.min_buyin and chips < self.min_buyin:
+            return False, f"Минимальный вход за этот стол: {self.min_buyin} фишек"
         if any(p.name == name for p in self.players.values()):
             name = name + "_2"
         p = Player(pid, name, chips)
@@ -270,10 +280,20 @@ class Table:
         for _ in range(self.MAX_PLAYERS + 1):
             p = self.players.get(self.current_turn)
             if p and not p.folded and not p.all_in and p.chips > 0:
-                return
+                break
             self.current_turn = self._next_seat(self.current_turn)
             if self.current_turn == start:
                 break
+        self._touch_turn()
+
+    def _touch_turn(self):
+        """Обновляет "токен" хода и дедлайн на действие. Вызывается при каждой смене хода —
+        старый запланированный таймер автовыхода (на сервере) станет недействительным."""
+        self.turn_token += 1
+        if self.current_turn and self.stage in ("preflop", "flop", "turn", "river"):
+            self.turn_deadline = time.time() + self.TURN_SECONDS
+        else:
+            self.turn_deadline = None
 
     def legal_actions(self, pid):
         p = self.players.get(pid)
@@ -415,6 +435,8 @@ class Table:
             winner.chips += self.pot
             self.log.append(f"{winner.name} забирает банк {self.pot} (все остальные сбросили)")
         self.stage = "showdown"
+        self.current_turn = None
+        self._touch_turn()
         self.last_result = {
             "winners": [winner.name] if winner else [],
             "pot": self.pot,
@@ -425,6 +447,8 @@ class Table:
 
     def _showdown(self):
         self.stage = "showdown"
+        self.current_turn = None
+        self._touch_turn()
         contenders = self._players_in_hand()
         results = {}
         best_score = None
@@ -489,4 +513,9 @@ class Table:
             "your_to_call": max(0, self.highest_bet - (self.players[for_pid].current_bet if for_pid in self.players else 0)),
             "hand_number": self.hand_number,
             "last_result": getattr(self, "last_result", None),
+            "turn_deadline": self.turn_deadline,
+            "turn_seconds": self.TURN_SECONDS,
+            "small_blind": self.SMALL_BLIND,
+            "big_blind": self.BIG_BLIND,
+            "min_buyin": self.min_buyin,
         }

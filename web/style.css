@@ -81,22 +81,7 @@ input[type="text"], input[type="number"] {
 #join-box { margin-top: 10px; padding-top: 10px; border-top: 1px solid #2e7d32; }
 #join-box input { width: 100%; text-align: center; text-transform: uppercase; letter-spacing: 3px; margin-bottom: 8px; }
 
-.room-code {
-  font-size: 1.6em;
-  font-weight: bold;
-  color: #ffd166;
-  background: #123f28;
-  padding: 14px;
-  border-radius: 8px;
-  letter-spacing: 4px;
-  margin: 14px 0;
-  word-break: break-all;
-}
-
-#waiting-players { margin: 14px 0; text-align: left; background: #123f28; border-radius: 8px; padding: 10px 14px; }
-#waiting-players div { padding: 3px 0; }
-
-/* ---------- угловые плавающие кнопки ---------- */
+/* ---------- угловые плавающие элементы ---------- */
 
 .corner-btn {
   position: fixed;
@@ -121,6 +106,16 @@ input[type="text"], input[type="number"] {
   font-size: 1.1em; padding: 0;
 }
 
+.code-badge {
+  top: 10px; left: 50%;
+  transform: translateX(-50%);
+  background: #123f28;
+  color: #ffd166;
+  border: 1px solid #2e7d32;
+  letter-spacing: 2px;
+  cursor: default;
+}
+
 /* ---------- модальные окна ---------- */
 
 .modal-overlay {
@@ -143,6 +138,42 @@ input[type="text"], input[type="number"] {
 }
 .modal-box input { width: 100%; text-align: center; margin: 8px 0; }
 
+.bg-grid {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 8px;
+  margin: 10px 0;
+}
+.bg-swatch {
+  height: 44px;
+  border-radius: 8px;
+  border: 2px solid transparent;
+  cursor: pointer;
+  position: relative;
+  display: flex;
+  align-items: flex-end;
+  justify-content: center;
+  font-size: 0.65em;
+  color: white;
+  text-shadow: 0 1px 2px rgba(0,0,0,0.8);
+  padding-bottom: 2px;
+}
+.bg-swatch.selected { border-color: #ffd166; }
+.bg-swatch.locked { opacity: 0.55; }
+.bg-swatch .lock-badge { position: absolute; top: 2px; right: 4px; font-size: 0.9em; }
+
+.shop-grid .bg-swatch { height: 60px; }
+.shop-buy-tag {
+  position: absolute; bottom: 2px; left: 0; right: 0;
+  font-size: 0.62em; background: rgba(0,0,0,0.5); padding: 1px 0;
+}
+
+.small-inline { width: auto; display: inline-block; padding: 6px 10px; font-size: 0.85em; margin-bottom: 10px; }
+.small-label { color: #a5d6a7; font-size: 0.8em; }
+.two-col { display: flex; gap: 10px; }
+.two-col > div { flex: 1; text-align: center; }
+
+
 .help-box { max-width: 440px; text-align: left; }
 .help-box h3 { text-align: center; }
 .hand-ranks, .action-legend { padding-left: 20px; margin: 0; font-size: 0.9em; line-height: 1.6; }
@@ -151,7 +182,7 @@ input[type="text"], input[type="number"] {
 /* ---------- игровой стол ---------- */
 
 #screen-table {
-  padding: 10px 8px 90px;
+  padding: 46px 8px 90px;
   align-items: stretch;
 }
 
@@ -159,8 +190,18 @@ input[type="text"], input[type="number"] {
   text-align: center;
   font-size: 0.9em;
   color: #c8e6c9;
+  margin-bottom: 2px;
+}
+
+.turn-timer {
+  text-align: center;
+  font-size: 0.95em;
+  font-weight: bold;
+  color: #c8e6c9;
+  min-height: 1.3em;
   margin-bottom: 6px;
 }
+.turn-timer.urgent { color: #ff8a65; }
 
 .poker-table-wrap {
   display: flex;
@@ -222,15 +263,17 @@ input[type="text"], input[type="number"] {
   border-radius: 8px;
   padding: 5px 8px;
   min-width: 84px;
-  max-width: 110px;
+  max-width: 112px;
   text-align: center;
   font-size: 0.78em;
 }
 .player-seat.turn { border-color: #ffd166; box-shadow: 0 0 8px #ffd166; }
+.player-seat.winner { border-color: gold; box-shadow: 0 0 10px gold; }
 .player-name { font-weight: bold; }
 .player-chips { color: #c8e6c9; }
 .player-status { color: #ef9a9a; font-size: 0.9em; }
 .player-bet { color: #90caf9; font-size: 0.9em; }
+.player-combo { color: #ffd166; font-size: 0.85em; font-weight: bold; margin-top: 2px; }
 .player-cards { display: flex; justify-content: center; gap: 2px; margin-top: 3px; }
 .player-cards .card { width: 20px; height: 28px; font-size: 0.55em; }
 

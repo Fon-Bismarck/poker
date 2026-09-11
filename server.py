@@ -25,6 +25,7 @@ from poker_core import Table
 
 DEFAULT_PORT = int(os.environ.get("PORT", 8000))
 WEB_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "web")
+AUTOSTART_DELAY = 6.0  # сколько секунд ждать после конца раздачи, прежде чем начать следующую
 
 MIME_OVERRIDES = {
     ".js": "application/javascript; charset=utf-8",
@@ -90,12 +91,23 @@ class ClientHandler(threading.Thread):
     def handle(self, msg):
         mtype = msg.get("type")
         if mtype == "create_room":
-            code = self.server.create_room(self.pid)
+            code = self.server.create_room(
+                self.pid,
+                background=msg.get("background"),
+                min_buyin=msg.get("min_buyin", 0),
+                small_blind=msg.get("small_blind"),
+                big_blind=msg.get("big_blind"),
+            )
             self.table_code = code
-            self.server.join_room(code, self.pid, msg.get("name", "Игрок"),
-                                   msg.get("chips", 1000), self)
-            self.send({"type": "room_created", "code": code})
-            self.server.broadcast_state(code)
+            ok, reason = self.server.join_room(code, self.pid, msg.get("name", "Игрок"),
+                                                msg.get("chips", 1000), self)
+            if ok:
+                self.send({"type": "room_created", "code": code,
+                           "background": self.server.get_background(code)})
+                self.server.broadcast_state(code)
+            else:
+                self.server.discard_empty_room(code)
+                self.send({"type": "error", "message": reason})
 
         elif mtype == "join_room":
             code = (msg.get("code") or "").strip().upper()
@@ -103,7 +115,8 @@ class ClientHandler(threading.Thread):
             ok, reason = self.server.join_room(code, self.pid, msg.get("name", "Игрок"),
                                                 msg.get("chips", 1000), self)
             if ok:
-                self.send({"type": "joined", "code": code})
+                self.send({"type": "joined", "code": code,
+                           "background": self.server.get_background(code)})
                 self.server.broadcast_state(code)
             else:
                 self.send({"type": "error", "message": reason})
@@ -140,6 +153,7 @@ class PokerServer:
     def __init__(self, port=DEFAULT_PORT):
         self.port = port
         self.tables = {}
+        self.table_meta = {}   # code -> {"background": ..., "min_buyin": ..., "small_blind":..., "big_blind":...}
         self.handlers = {}
         self.lock = threading.RLock()
         self.sock = None
@@ -221,15 +235,28 @@ class PokerServer:
 
     # ---------- логика столов (идентична предыдущей версии) ----------
 
-    def create_room(self, host_pid):
+    def create_room(self, host_pid, background=None, min_buyin=0, small_blind=None, big_blind=None):
         with self.lock:
             while True:
                 code = gen_code()
                 if code not in self.tables:
                     break
-            self.tables[code] = Table(code, host_pid)
+            self.tables[code] = Table(code, host_pid, small_blind=small_blind,
+                                       big_blind=big_blind, min_buyin=min_buyin)
             self.handlers[code] = {}
+            self.table_meta[code] = {"background": background}
             return code
+
+    def get_background(self, code):
+        return self.table_meta.get(code, {}).get("background")
+
+    def discard_empty_room(self, code):
+        with self.lock:
+            table = self.tables.get(code)
+            if table and not table.players:
+                del self.tables[code]
+                self.handlers.pop(code, None)
+                self.table_meta.pop(code, None)
 
     def join_room(self, code, pid, name, chips, handler):
         with self.lock:
@@ -254,6 +281,7 @@ class PokerServer:
             if not table.players:
                 del self.tables[code]
                 del self.handlers[code]
+                self.table_meta.pop(code, None)
                 return
             self.broadcast_state(code)
 
@@ -266,6 +294,7 @@ class PokerServer:
             if ok:
                 self.broadcast_state(code)
                 self._maybe_autostart(code)
+                self._schedule_turn_timeout(code)
             else:
                 h = self.handlers.get(code, {}).get(pid)
                 if h:
@@ -297,13 +326,16 @@ class PokerServer:
             if table and table.stage in ("waiting", "showdown") and table.can_start_hand():
                 table.start_hand()
                 self.broadcast_state(code)
+                self._schedule_turn_timeout(code)
 
     def _maybe_autostart(self, code):
         table = self.tables.get(code)
         if not table:
             return
         if table.stage in ("waiting", "showdown") and table.can_start_hand():
-            threading.Timer(3.0, self._delayed_start, args=(code, table.hand_number)).start()
+            timer = threading.Timer(AUTOSTART_DELAY, self._delayed_start, args=(code, table.hand_number))
+            timer.daemon = True
+            timer.start()
 
     def _delayed_start(self, code, expected_hand_number):
         with self.lock:
@@ -313,6 +345,39 @@ class PokerServer:
             if table.stage in ("waiting", "showdown") and table.hand_number == expected_hand_number and table.can_start_hand():
                 table.start_hand()
                 self.broadcast_state(code)
+                self._schedule_turn_timeout(code)
+
+    def _schedule_turn_timeout(self, code):
+        """Планирует автодействие (чек/фолд), если игрок не походит вовремя."""
+        with self.lock:
+            table = self.tables.get(code)
+            if not table or not table.current_turn or table.turn_deadline is None:
+                return
+            token = table.turn_token
+            delay = max(0.05, table.turn_deadline - time.time())
+        timer = threading.Timer(delay, self._handle_turn_timeout, args=(code, token))
+        timer.daemon = True
+        timer.start()
+
+    def _handle_turn_timeout(self, code, token):
+        with self.lock:
+            table = self.tables.get(code)
+            if not table or table.turn_token != token:
+                return  # ход уже сменился раньше, чем сработал таймер
+            pid = table.current_turn
+            if not pid:
+                return
+            actions = table.legal_actions(pid)
+            if not actions:
+                return
+            action = "check" if "check" in actions else "fold"
+            ok, _ = table.apply_action(pid, action)
+            if not ok:
+                return
+            table.log.append("(время на ход истекло — автодействие)")
+            self.broadcast_state(code)
+            self._maybe_autostart(code)
+            self._schedule_turn_timeout(code)
 
     def broadcast_state(self, code):
         table = self.tables.get(code)
