@@ -114,6 +114,9 @@ class ClientHandler(threading.Thread):
         elif mtype == "start_hand":
             self.server.try_start_hand(self.table_code)
 
+        elif mtype == "rebuy":
+            self.server.player_rebuy(self.table_code, self.pid, msg.get("amount", 0))
+
         elif mtype == "leave":
             self.disconnect()
 
@@ -267,6 +270,26 @@ class PokerServer:
                 h = self.handlers.get(code, {}).get(pid)
                 if h:
                     h.send({"type": "error", "message": reason})
+
+    def player_rebuy(self, code, pid, amount):
+        with self.lock:
+            table = self.tables.get(code)
+            if not table:
+                return
+            player = table.players.get(pid)
+            if not player:
+                return
+            try:
+                amount = int(amount)
+            except (TypeError, ValueError):
+                amount = 0
+            if amount <= 0:
+                return
+            player.chips += amount
+            if player.chips > 0:
+                player.sitting_out = False
+            self.broadcast_state(code)
+            self._maybe_autostart(code)
 
     def try_start_hand(self, code):
         with self.lock:

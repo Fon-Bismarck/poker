@@ -12,6 +12,10 @@
 </head>
 <body>
 
+<!-- Плавающие кнопки в углах: бонус и помощь. Видны на любом экране -->
+<button id="daily-bonus" class="corner-btn bonus-btn">🎁 Бонус</button>
+<button id="help-btn" class="corner-btn help-fab">❓</button>
+
 <!-- ЭКРАН: ГЛАВНОЕ МЕНЮ -->
 <div id="screen-menu" class="screen">
   <div class="menu-box">
@@ -20,14 +24,14 @@
       <label>Ваше имя:</label>
       <input id="input-name" type="text" maxlength="20" placeholder="Игрок">
     </div>
-    <div class="chips-display">Фишки: <span id="wallet-chips">1000</span></div>
+    <div class="chips-display">Банк: <span id="bank-chips">1000</span> фишек</div>
 
     <button id="btn-create" class="btn btn-green">Создать стол</button>
     <button id="btn-join" class="btn btn-blue">Присоединиться по коду</button>
 
     <div id="join-box" class="hidden">
       <input id="input-code" type="text" maxlength="5" placeholder="КОД СТОЛА" autocapitalize="characters">
-      <button id="btn-join-confirm" class="btn btn-blue">Войти</button>
+      <button id="btn-join-confirm" class="btn btn-blue">Далее</button>
       <button id="btn-join-cancel" class="btn btn-grey">Отмена</button>
     </div>
 
@@ -36,7 +40,6 @@
       адрес сервера. Хост нажимает «Создать стол» и делится коротким кодом
       с остальными игроками (до 5 человек за столом).
     </p>
-    <p id="connection-hint" class="hint small"></p>
   </div>
 </div>
 
@@ -55,14 +58,17 @@
 
 <!-- ЭКРАН: ИГРОВОЙ СТОЛ -->
 <div id="screen-table" class="screen hidden">
-  <div class="table-top">
-    <div id="pot-label" class="pot-label">Банк: 0</div>
-    <div id="stage-label" class="stage-label"></div>
+  <div id="stage-label" class="stage-label"></div>
+
+  <div class="poker-table-wrap">
+    <div class="poker-table-oval" id="poker-oval">
+      <div class="center-area">
+        <div id="pot-label" class="pot-label">Банк: 0</div>
+        <div id="community-cards" class="cards-row"></div>
+      </div>
+      <!-- места игроков добавляются сюда через JS -->
+    </div>
   </div>
-
-  <div id="community-cards" class="cards-row"></div>
-
-  <div id="players-row" class="players-row"></div>
 
   <div id="hole-cards" class="cards-row hole"></div>
 
@@ -77,6 +83,75 @@
     <button id="act-allin" class="btn btn-purple small-btn">Ва-банк</button>
   </div>
   <button id="btn-leave-table" class="btn btn-red leave-btn">Покинуть стол</button>
+</div>
+
+<!-- МОДАЛКА: выбор бай-ина (при создании / входе за стол) -->
+<div id="buyin-modal" class="modal-overlay hidden">
+  <div class="modal-box">
+    <h3 id="buyin-title">Сколько фишек занести за стол?</h3>
+    <p class="hint">Это будет ваш стек за этим столом. Остальное останется в банке.</p>
+    <input id="buyin-amount" type="number" min="1" step="10">
+    <p class="hint small">Доступно в банке: <span id="buyin-bank-max">0</span></p>
+    <button id="buyin-confirm" class="btn btn-green">Сесть за стол</button>
+    <button id="buyin-cancel" class="btn btn-grey">Отмена</button>
+  </div>
+</div>
+
+<!-- МОДАЛКА: докупка фишек, когда стек за столом закончился -->
+<div id="rebuy-modal" class="modal-overlay hidden">
+  <div class="modal-box">
+    <h3>Ваши фишки за столом закончились</h3>
+    <div id="rebuy-with-bank">
+      <p class="hint">Можно довнести ещё из банка, чтобы продолжить игру.</p>
+      <input id="rebuy-amount" type="number" min="1" step="10">
+      <p class="hint small">Доступно в банке: <span id="rebuy-bank-max">0</span></p>
+      <button id="rebuy-confirm" class="btn btn-green">Довнести и играть</button>
+    </div>
+    <div id="rebuy-no-bank" class="hidden">
+      <p class="hint">В банке тоже не осталось фишек. Получите дневной бонус (кнопка «🎁 Бонус» в углу) или дождитесь его.</p>
+    </div>
+    <button id="rebuy-leave" class="btn btn-red">Покинуть стол</button>
+  </div>
+</div>
+
+<!-- МОДАЛКА: памятка по комбинациям и кнопкам -->
+<div id="help-modal" class="modal-overlay hidden">
+  <div class="modal-box help-box">
+    <h3>Как играть в покер</h3>
+
+    <h4>Комбинации карт (от старшей к младшей)</h4>
+    <ol class="hand-ranks">
+      <li><b>Роял-флеш</b> — A, K, Q, J, 10 одной масти</li>
+      <li><b>Стрит-флеш</b> — 5 карт подряд одной масти</li>
+      <li><b>Каре</b> — 4 карты одного ранга</li>
+      <li><b>Фулл-хаус</b> — тройка + пара</li>
+      <li><b>Флеш</b> — 5 карт одной масти (не подряд)</li>
+      <li><b>Стрит</b> — 5 карт подряд (разных мастей)</li>
+      <li><b>Сет (тройка)</b> — 3 карты одного ранга</li>
+      <li><b>Две пары</b></li>
+      <li><b>Пара</b></li>
+      <li><b>Старшая карта</b> — если ничего не собралось</li>
+    </ol>
+
+    <h4>Кнопки действий</h4>
+    <ul class="action-legend">
+      <li><b>Фолд</b> — сбросить карты, выйти из этой раздачи</li>
+      <li><b>Чек</b> — не ставить, передать ход дальше (если никто не повышал)</li>
+      <li><b>Колл</b> — уравнять текущую ставку соперника</li>
+      <li><b>Рейз</b> — повысить ставку на сумму в поле рядом</li>
+      <li><b>Ва-банк</b> — поставить все свои фишки за столом</li>
+    </ul>
+
+    <h4>Порядок игры</h4>
+    <p class="hint">
+      Каждому раздаются 2 карты в закрытую. Дальше по кругу открывают
+      общие карты: флоп (3 карты), тёрн (1 карта), ривер (1 карта). После
+      каждого этапа — круг ставок. В конце (вскрытие) выигрывает тот, у
+      кого из своих 2 карт и 5 общих собирается старшая комбинация.
+    </p>
+
+    <button id="help-close" class="btn btn-blue">Понятно</button>
+  </div>
 </div>
 
 <script src="app.js"></script>
