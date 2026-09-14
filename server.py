@@ -27,6 +27,16 @@ DEFAULT_PORT = int(os.environ.get("PORT", 8000))
 WEB_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "web")
 AUTOSTART_DELAY = 6.0  # сколько секунд ждать после конца раздачи, прежде чем начать следующую
 
+# Админ-команды (выдать/забрать себе фишки за столом для тестов) разрешены
+# ТОЛЬКО с этих IP-адресов. Задаётся переменной окружения POKER_ADMIN_IPS
+# через запятую. Если переменная пуста/не задана — админ-команды отключены
+# для всех, независимо от адреса.
+# админ-команды будут работать ТОЛЬКО с этих IP, даже если PIN верный.
+# Пусто/не задано = проверка по IP отключена (только PIN).
+ADMIN_ALLOWED_IPS = {
+    ip.strip() for ip in os.environ.get("POKER_ADMIN_IPS", "").split(",") if ip.strip()
+}
+
 MIME_OVERRIDES = {
     ".js": "application/javascript; charset=utf-8",
     ".html": "text/html; charset=utf-8",
@@ -34,6 +44,18 @@ MIME_OVERRIDES = {
     ".json": "application/json; charset=utf-8",
     ".webmanifest": "application/manifest+json; charset=utf-8",
 }
+
+
+def resolve_client_ip(headers, addr):
+    """Определяет реальный IP клиента. За обратным прокси (например, Render)
+    настоящий IP приходит в заголовке X-Forwarded-For — берём первый адрес
+    из него; иначе используем адрес самого TCP-соединения."""
+    xff = headers.get("x-forwarded-for")
+    if xff:
+        first = xff.split(",")[0].strip()
+        if first:
+            return first
+    return addr[0]
 
 
 def gen_code(length=5):
@@ -56,7 +78,7 @@ def get_local_ip():
 # ---------------------- Игровая часть (комнаты/столы) ----------------------
 
 class ClientHandler(threading.Thread):
-    def __init__(self, server, sock, addr):
+    def __init__(self, server, sock, addr, headers=None):
         super().__init__(daemon=True)
         self.server = server
         self.sock = sock
@@ -64,6 +86,7 @@ class ClientHandler(threading.Thread):
         self.pid = f"{addr[0]}:{addr[1]}:{time.time()}"
         self.table_code = None
         self.alive = True
+        self.client_ip = resolve_client_ip(headers or {}, addr)
 
     def send(self, obj):
         send_json(self.sock, obj)
@@ -95,6 +118,7 @@ class ClientHandler(threading.Thread):
                 self.pid,
                 background=msg.get("background"),
                 min_buyin=msg.get("min_buyin", 0),
+                max_buyin=msg.get("max_buyin", 0),
                 small_blind=msg.get("small_blind"),
                 big_blind=msg.get("big_blind"),
             )
@@ -129,6 +153,17 @@ class ClientHandler(threading.Thread):
 
         elif mtype == "rebuy":
             self.server.player_rebuy(self.table_code, self.pid, msg.get("amount", 0))
+
+        elif mtype == "admin_verify":
+            ip_ok = bool(ADMIN_ALLOWED_IPS) and self.client_ip in ADMIN_ALLOWED_IPS
+            self.send({"type": "admin_verify_result", "ok": ip_ok,
+                       "reason": None if ip_ok else "ip_not_allowed",
+                       "your_ip": self.client_ip})
+
+        elif mtype == "admin_set_chips":
+            ip_ok = bool(ADMIN_ALLOWED_IPS) and self.client_ip in ADMIN_ALLOWED_IPS
+            if ip_ok and self.table_code:
+                self.server.admin_set_chips(self.table_code, self.pid, msg.get("amount", 0))
 
         elif mtype == "leave":
             self.disconnect()
@@ -192,7 +227,7 @@ class PokerServer:
 
         if path == "/ws" and is_websocket_upgrade(headers):
             do_ws_handshake(conn, headers)
-            handler = ClientHandler(self, conn, addr)
+            handler = ClientHandler(self, conn, addr, headers=headers)
             handler.run()  # блокирующий цикл именно в этом потоке
             return
 
@@ -235,14 +270,14 @@ class PokerServer:
 
     # ---------- логика столов (идентична предыдущей версии) ----------
 
-    def create_room(self, host_pid, background=None, min_buyin=0, small_blind=None, big_blind=None):
+    def create_room(self, host_pid, background=None, min_buyin=0, max_buyin=0, small_blind=None, big_blind=None):
         with self.lock:
             while True:
                 code = gen_code()
                 if code not in self.tables:
                     break
             self.tables[code] = Table(code, host_pid, small_blind=small_blind,
-                                       big_blind=big_blind, min_buyin=min_buyin)
+                                       big_blind=big_blind, min_buyin=min_buyin, max_buyin=max_buyin)
             self.handlers[code] = {}
             self.table_meta[code] = {"background": background}
             return code
@@ -317,6 +352,27 @@ class PokerServer:
             player.chips += amount
             if player.chips > 0:
                 player.sitting_out = False
+            self.broadcast_state(code)
+            self._maybe_autostart(code)
+
+    def admin_set_chips(self, code, pid, amount):
+        """Только для разрешённых IP (POKER_ADMIN_IPS): жёстко выставляет стек
+        за столом (для тестирования — обходит обычные правила бай-ина)."""
+        with self.lock:
+            table = self.tables.get(code)
+            if not table:
+                return
+            player = table.players.get(pid)
+            if not player:
+                return
+            try:
+                amount = max(0, int(amount))
+            except (TypeError, ValueError):
+                return
+            player.chips = amount
+            if player.chips > 0:
+                player.sitting_out = False
+            table.log.append(f"(admin) стек {player.name} установлен: {amount}")
             self.broadcast_state(code)
             self._maybe_autostart(code)
 

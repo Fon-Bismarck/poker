@@ -168,6 +168,9 @@ function initMenu() {
 
   el("buyin-confirm").addEventListener("click", confirmBuyIn);
   el("buyin-cancel").addEventListener("click", cancelBuyIn);
+  el("buyin-slider").addEventListener("input", () => {
+    el("buyin-amount-display").textContent = el("buyin-slider").value;
+  });
   el("rebuy-confirm").addEventListener("click", confirmRebuy);
   el("rebuy-leave").addEventListener("click", () => {
     hideRebuyModal();
@@ -347,6 +350,7 @@ function openTableSetupModal() {
   state.selectedBgId = "default";
   renderBgGrid(el("setup-bg-grid"), { selectable: true, forShop: false });
   el("setup-min-buyin").value = 0;
+  el("setup-max-buyin").value = 0;
   el("setup-small-blind").value = 10;
   el("setup-big-blind").value = 20;
   el("table-setup-modal").classList.remove("hidden");
@@ -354,10 +358,19 @@ function openTableSetupModal() {
 
 function confirmTableSetup() {
   const minBuyin = Math.max(0, parseInt(el("setup-min-buyin").value || "0", 10));
+  const maxBuyinRaw = Math.max(0, parseInt(el("setup-max-buyin").value || "0", 10));
   const smallBlind = Math.max(1, parseInt(el("setup-small-blind").value || "10", 10));
   const bigBlind = Math.max(2, parseInt(el("setup-big-blind").value || "20", 10));
   if (bigBlind <= smallBlind) {
     alert("Максимальный блайнд (BB) должен быть больше минимального (SB).");
+    return;
+  }
+  if (maxBuyinRaw && maxBuyinRaw < minBuyin) {
+    alert("Максимальный вход не может быть меньше минимального.");
+    return;
+  }
+  if (minBuyin > state.bank) {
+    alert(`В банке ${state.bank} фишек — недостаточно для минимального входа ${minBuyin}, который вы указали.`);
     return;
   }
 
@@ -374,21 +387,33 @@ function confirmTableSetup() {
     type: "create",
     background,
     min_buyin: minBuyin,
+    max_buyin: maxBuyinRaw,
     small_blind: smallBlind,
     big_blind: bigBlind,
   });
 }
 
-// ---------------- Бай-ин (сколько фишек занести за стол) ----------------
+// ---------------- Бай-ин (сколько фишек занести за стол, ползунком) ----------------
 
 function openBuyInModal(pending) {
   state.pendingBuyIn = pending;
   el("buyin-bank-max").textContent = state.bank;
-  const amountInput = el("buyin-amount");
+
   const minAmount = pending.type === "create" ? Math.max(1, pending.min_buyin || 0) : 1;
-  amountInput.min = minAmount;
-  amountInput.max = state.bank;
-  amountInput.value = Math.max(minAmount, Math.min(state.bank, Math.max(minAmount, 1000)));
+  let maxAmount = state.bank;
+  if (pending.type === "create" && pending.max_buyin) {
+    maxAmount = Math.min(pending.max_buyin, state.bank);
+  }
+  if (maxAmount < minAmount) maxAmount = minAmount; // банк меньше минимума — слайдер выше не даст ошибиться
+
+  const slider = el("buyin-slider");
+  slider.min = minAmount;
+  slider.max = Math.max(minAmount, maxAmount);
+  slider.step = Math.max(1, Math.round((slider.max - minAmount) / 100) || 1);
+  slider.value = Math.min(slider.max, Math.max(minAmount, Math.min(state.bank, 1000)));
+  el("buyin-amount-display").textContent = slider.value;
+  el("buyin-range-label").textContent = `от ${minAmount} до ${slider.max}`;
+
   el("buyin-modal").classList.remove("hidden");
 }
 
@@ -398,11 +423,12 @@ function cancelBuyIn() {
 }
 
 function confirmBuyIn() {
-  const amount = parseInt(el("buyin-amount").value || "0", 10);
+  const amount = parseInt(el("buyin-slider").value || "0", 10);
   const pending = state.pendingBuyIn;
-  const minAmount = pending && pending.type === "create" ? Math.max(1, pending.min_buyin || 0) : 1;
-  if (!amount || amount < minAmount || amount > state.bank) {
-    alert(`Введите сумму от ${minAmount} до ${state.bank}`);
+  const minAmount = parseInt(el("buyin-slider").min, 10);
+  const maxAmount = parseInt(el("buyin-slider").max, 10);
+  if (!amount || amount < minAmount || amount > maxAmount || amount > state.bank) {
+    alert(`Введите сумму от ${minAmount} до ${Math.min(maxAmount, state.bank)}`);
     return;
   }
   state.bank -= amount;
@@ -423,6 +449,7 @@ function confirmBuyIn() {
       chips: amount,
       background: pending.background || null,
       min_buyin: pending.min_buyin || 0,
+      max_buyin: pending.max_buyin || 0,
       small_blind: pending.small_blind || 10,
       big_blind: pending.big_blind || 20,
     }));
@@ -592,7 +619,9 @@ function renderState(s) {
 
   if (waiting) {
     const n = s.players.length;
-    el("pot-label").textContent = `Блайнды: ${s.small_blind}/${s.big_blind}` + (s.min_buyin ? ` · Мин. вход: ${s.min_buyin}` : "");
+    el("pot-label").textContent = `Блайнды: ${s.small_blind}/${s.big_blind}` +
+      (s.min_buyin ? ` · Мин. вход: ${s.min_buyin}` : "") +
+      (s.max_buyin ? ` · Макс: ${s.max_buyin}` : "");
     el("stage-label").textContent =
       n >= 2
         ? `Игроков за столом: ${n}/5 — раздача начнётся автоматически через пару секунд`
@@ -773,6 +802,82 @@ function registerServiceWorker() {
 }
 
 document.addEventListener("DOMContentLoaded", initMenu);
+
+// ---------------- Скрытая админ-панель (только для вас) ----------------
+// Открывается 5 быстрыми тапами по заголовку в главном меню. Доступ
+// проверяется НА СЕРВЕРЕ по IP-адресу (переменная POKER_ADMIN_IPS) —
+// без пароля, только по разрешённым адресам.
+
+let titleTapCount = 0;
+let titleTapTimer = null;
+
+function ensureAdminConnection(callback) {
+  if (state.ws && state.ws.readyState === WebSocket.OPEN) {
+    callback(state.ws, false);
+    return;
+  }
+  const tempWs = new WebSocket(wsUrl());
+  tempWs.addEventListener("open", () => callback(tempWs, true));
+  tempWs.addEventListener("error", () => alert("Не удалось подключиться к серверу для проверки."));
+}
+
+function setupAdminTrigger() {
+  const title = el("app-title");
+  if (!title) return;
+  title.addEventListener("click", () => {
+    titleTapCount += 1;
+    clearTimeout(titleTapTimer);
+    titleTapTimer = setTimeout(() => { titleTapCount = 0; }, 2500);
+    if (titleTapCount >= 5) {
+      titleTapCount = 0;
+      requestAdminAccess();
+    }
+  });
+
+  el("admin-panel-close").addEventListener("click", () => el("admin-panel-modal").classList.add("hidden"));
+  el("admin-set-bank").addEventListener("click", () => {
+    const amount = parseInt(el("admin-bank-amount").value || "0", 10);
+    if (isNaN(amount) || amount < 0) return;
+    state.bank = amount;
+    saveBank();
+    refreshBankDisplay();
+  });
+  el("admin-set-table").addEventListener("click", () => {
+    const amount = parseInt(el("admin-table-amount").value || "0", 10);
+    if (isNaN(amount) || amount < 0) return;
+    sendMsg({ type: "admin_set_chips", amount });
+  });
+}
+
+function requestAdminAccess() {
+  ensureAdminConnection((sock, isTemp) => {
+    const onMessage = (ev) => {
+      let msg;
+      try { msg = JSON.parse(ev.data); } catch (e) { return; }
+      if (msg.type !== "admin_verify_result") return;
+      sock.removeEventListener("message", onMessage);
+      if (isTemp) sock.close();
+      if (!msg.ok) {
+        alert(`Доступ запрещён. Ваш IP: ${msg.your_ip}. Добавьте его в POKER_ADMIN_IPS на сервере, чтобы открыть панель отсюда.`);
+        return;
+      }
+      openAdminPanel();
+    };
+    sock.addEventListener("message", onMessage);
+    sock.send(JSON.stringify({ type: "admin_verify" }));
+  });
+}
+
+function openAdminPanel() {
+  el("admin-bank-amount").value = state.bank;
+  el("admin-table-section").classList.toggle("hidden", !state.connectedToTable);
+  if (state.connectedToTable && state.myLastKnownChips !== null) {
+    el("admin-table-amount").value = state.myLastKnownChips;
+  }
+  el("admin-panel-modal").classList.remove("hidden");
+}
+
+document.addEventListener("DOMContentLoaded", setupAdminTrigger);
 
 // Подстраховка: если вкладку/приложение закрыли прямо во время игры, не
 // нажав «Покинуть стол», всё равно сохраняем последний известный стек в банк.

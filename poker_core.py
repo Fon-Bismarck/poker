@@ -143,13 +143,16 @@ class Table:
     BIG_BLIND = 20
     TURN_SECONDS = 20  # сколько секунд даётся на ход, потом автодействие
 
-    def __init__(self, code, host_id, small_blind=None, big_blind=None, min_buyin=0):
+    def __init__(self, code, host_id, small_blind=None, big_blind=None, min_buyin=0, max_buyin=0):
         self.code = code
         self.host_id = host_id
         if small_blind and big_blind and big_blind > small_blind:
             self.SMALL_BLIND = int(small_blind)
             self.BIG_BLIND = int(big_blind)
         self.min_buyin = max(0, int(min_buyin or 0))
+        self.max_buyin = max(0, int(max_buyin or 0))
+        if self.max_buyin and self.min_buyin and self.max_buyin < self.min_buyin:
+            self.max_buyin = self.min_buyin
         self.players = {}          # id -> Player
         self.seat_order = []       # список id в порядке посадки
         self.dealer_pos = -1
@@ -174,6 +177,8 @@ class Table:
             return False, "Стол уже заполнен (максимум 5 игроков)"
         if self.min_buyin and chips < self.min_buyin:
             return False, f"Минимальный вход за этот стол: {self.min_buyin} фишек"
+        if self.max_buyin and chips > self.max_buyin:
+            return False, f"Максимальный вход за этот стол: {self.max_buyin} фишек"
         if any(p.name == name for p in self.players.values()):
             name = name + "_2"
         p = Player(pid, name, chips)
@@ -518,4 +523,5 @@ class Table:
             "small_blind": self.SMALL_BLIND,
             "big_blind": self.BIG_BLIND,
             "min_buyin": self.min_buyin,
+            "max_buyin": self.max_buyin,
         }

@@ -20,7 +20,7 @@
 <!-- ЭКРАН: ГЛАВНОЕ МЕНЮ -->
 <div id="screen-menu" class="screen">
   <div class="menu-box">
-    <h1>♠ ПОКЕР ОНЛАЙН ♥</h1>
+    <h1 id="app-title">♠ ПОКЕР ОНЛАЙН ♥</h1>
     <div class="profile-row">
       <label>Ваше имя:</label>
       <input id="input-name" type="text" maxlength="20" placeholder="Игрок">
@@ -80,8 +80,9 @@
   <div class="modal-box">
     <h3>Сколько фишек занести за стол?</h3>
     <p class="hint">Это будет ваш стек за этим столом. Остальное останется в банке.</p>
-    <input id="buyin-amount" type="number" min="1" step="10">
-    <p class="hint small">Доступно в банке: <span id="buyin-bank-max">0</span></p>
+    <div class="slider-value">Возьмёте: <span id="buyin-amount-display">0</span> фишек</div>
+    <input id="buyin-slider" type="range" min="1" max="1000" step="10" value="1000">
+    <p class="hint small">Диапазон: <span id="buyin-range-label"></span> · доступно в банке: <span id="buyin-bank-max">0</span></p>
     <button id="buyin-confirm" class="btn btn-green">Сесть за стол</button>
     <button id="buyin-cancel" class="btn btn-grey">Отмена</button>
   </div>
@@ -150,8 +151,17 @@
     <div id="setup-bg-grid" class="bg-grid"></div>
     <button id="setup-open-shop" class="btn btn-purple small-inline">🛍 Магазин фонов</button>
 
-    <p class="hint">Минимальный вход за стол (фишек)</p>
-    <input id="setup-min-buyin" type="number" min="0" step="10" value="0">
+    <p class="hint">Вход за стол (фишек)</p>
+    <div class="two-col">
+      <div>
+        <label class="small-label">Минимальный</label>
+        <input id="setup-min-buyin" type="number" min="0" step="10" value="0">
+      </div>
+      <div>
+        <label class="small-label">Максимальный (0 = без ограничения)</label>
+        <input id="setup-max-buyin" type="number" min="0" step="10" value="0">
+      </div>
+    </div>
 
     <p class="hint">Блайнды в начале раздачи</p>
     <div class="two-col">
@@ -188,6 +198,26 @@
     </div>
 
     <button id="shop-close" class="btn btn-blue">Закрыть</button>
+  </div>
+</div>
+
+<!-- Скрытая админ-панель: открывается жестом (5 тапов по заголовку), доступ — только с разрешённых IP -->
+<div id="admin-panel-modal" class="modal-overlay hidden">
+  <div class="modal-box">
+    <h3>Админ-панель</h3>
+    <p class="hint" style="margin-top:0;">Только для тестирования. Видна и работает только у вас.</p>
+
+    <p class="hint">Банк (локально, без сервера)</p>
+    <input id="admin-bank-amount" type="number" min="0" step="100">
+    <button id="admin-set-bank" class="btn btn-blue small-inline">Установить банк</button>
+
+    <div id="admin-table-section" class="hidden">
+      <p class="hint">Стек за текущим столом (через сервер)</p>
+      <input id="admin-table-amount" type="number" min="0" step="100">
+      <button id="admin-set-table" class="btn btn-blue small-inline">Установить стек</button>
+    </div>
+
+    <button id="admin-panel-close" class="btn btn-grey">Закрыть</button>
   </div>
 </div>
 
