@@ -1,0 +1,189 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>Блэкджек</title>
+<link rel="stylesheet" href="/casino.css">
+<style>
+  .felt{background:radial-gradient(120% 100% at 50% 0%,#14584b,#0a2f29);border:1px solid rgba(201,164,92,.4);border-radius:18px;padding:12px;margin-top:8px}
+  .zone{text-align:center;min-height:118px}
+  .zone h3{margin:0 0 6px;font-family:var(--serif);font-size:15px;color:var(--brass);font-weight:500}
+  .hand{display:flex;justify-content:center;min-height:84px}
+  .card{width:54px;height:78px;border-radius:7px;background:var(--ivory);color:#111;display:flex;flex-direction:column;
+    justify-content:space-between;padding:4px 5px;font-weight:800;font-size:17px;line-height:1;margin-left:-22px;
+    box-shadow:0 2px 6px rgba(0,0,0,.55);text-align:left}
+  .card:first-child{margin-left:0}
+  .card .s{font-size:20px;align-self:flex-end}
+  .card.red{color:#c0252f}
+  .card.back{background:repeating-linear-gradient(45deg,#7d1f2a 0 5px,#5c1620 5px 10px);border:3px solid var(--ivory)}
+  .card.deal{animation:deal .35s ease-out both}
+  @keyframes deal{from{opacity:0;transform:translate(30px,-50px) rotate(18deg)}to{opacity:1;transform:none}}
+  .total{display:inline-block;margin-top:6px;background:rgba(0,0,0,.4);padding:2px 10px;border-radius:999px;font-size:13px;font-weight:700}
+  .total.bust{background:var(--ox)} .total.bj{background:var(--win);color:#2a1d04}
+  .others{display:flex;gap:8px;justify-content:center;flex-wrap:wrap;margin:10px 0}
+  .seat{background:rgba(0,0,0,.25);border:1px solid rgba(255,255,255,.1);border-radius:12px;padding:6px 8px;min-width:104px;text-align:center}
+  .seat .nm{font-size:12px;color:var(--muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:110px}
+  .seat .card{width:32px;height:46px;font-size:11px;margin-left:-14px;padding:2px 3px;border-radius:5px}
+  .seat .card .s{font-size:12px}
+  .seat .hand{min-height:46px}
+  .seat.turn,.me.turn{border-color:var(--win);box-shadow:0 0 0 2px var(--win)}
+  .res{font-size:12px;font-weight:700;margin-top:3px;min-height:16px}
+  .res.win{color:var(--win)} .res.lose{color:#e48a8f} .res.push{color:var(--muted)}
+  .me{margin-top:6px;border:1px solid rgba(255,255,255,.12);border-radius:14px;padding:8px;background:rgba(0,0,0,.2)}
+  .me .nm{font-size:13px;color:var(--win);text-align:center}
+  .betline{text-align:center;font-size:13px;color:var(--muted);margin-top:4px}
+  .acts{display:flex;gap:8px;justify-content:center;margin-top:10px}
+  .acts .btn{flex:1;max-width:130px;padding:13px 6px;font-size:16px}
+  .actions{display:flex;gap:8px;justify-content:center;margin-top:6px}
+  .count{font-family:var(--serif);font-size:15px;text-align:center;color:var(--muted)}
+</style>
+</head>
+<body>
+<div class="topbar">
+  <button class="btn small" id="back">← Меню</button>
+  <div class="title">Блэкджек<small id="tableInfo">Ищем стол…</small></div>
+  <div class="balance">🪙 <span id="bal">0</span></div>
+</div>
+
+<div class="wrap">
+  <div class="timer"><i id="timerBar"></i></div>
+  <div class="count" id="status"></div>
+
+  <div class="felt">
+    <div class="zone"><h3>Дилер</h3><div class="hand" id="dealer"></div><div id="dealerTotal"></div></div>
+    <div class="others" id="others"></div>
+    <div class="me" id="me">
+      <div class="nm" id="meName"></div>
+      <div class="hand" id="myHand"></div>
+      <div style="text-align:center" id="myTotal"></div>
+      <div class="betline" id="betline"></div>
+      <div class="res" id="myRes" style="text-align:center"></div>
+    </div>
+    <div class="acts" id="acts"></div>
+  </div>
+
+  <div id="betPanel">
+    <div class="chips" id="chips"></div>
+    <div class="actions">
+      <button class="btn" id="clear">Очистить</button>
+      <button class="btn gold" id="rebet">Повторить</button>
+    </div>
+  </div>
+  <div class="actions"><button class="btn" id="topup" style="display:none">+5000</button></div>
+</div>
+
+<script src="/casino.js"></script>
+<script>
+const SYM = { S: '♠', H: '♥', D: '♦', C: '♣' };
+let chip = 100, state = null, deadlineAt = 0, phaseTotal = 1;
+const seen = new Set();
+const esc = s => String(s).replace(/[<>&]/g, '');
+
+function cardEl(c, key) {
+  const d = document.createElement('div');
+  if (!c) d.className = 'card back';
+  else {
+    d.className = 'card' + (c[1] === 'H' || c[1] === 'D' ? ' red' : '');
+    d.innerHTML = `<span>${c[0]}</span><span class="s">${SYM[c[1]]}</span>`;
+  }
+  if (!seen.has(key)) { seen.add(key); d.classList.add('deal'); }
+  return d;
+}
+function fillHand(box, cards, prefix) {
+  box.innerHTML = '';
+  cards.forEach((c, i) => box.appendChild(cardEl(c, `${prefix}:${i}:${c ? c.join('') : 'x'}`)));
+}
+function totalHtml(p) {
+  if (!p.cards.length) return '';
+  const cls = p.status === 'bust' ? 'bust' : p.status === 'blackjack' ? 'bj' : '';
+  const t = p.status === 'blackjack' ? 'Блэкджек!' : p.status === 'bust' ? `Перебор ${p.total}` : (p.soft && p.total < 21 ? `${p.total - 10}/${p.total}` : p.total);
+  return `<span class="total ${cls}">${t}</span>`;
+}
+function resHtml(p, phase) {
+  if (phase !== 'payout' || !p.result) return '';
+  const m = { blackjack: ['win', `Блэкджек +${Casino.fmt(p.win)}`], win: ['win', `Победа +${Casino.fmt(p.win)}`], push: ['push', 'Ничья'], lose: ['lose', `Проигрыш ${Casino.fmt(p.win)}`], bust: ['lose', `Перебор ${Casino.fmt(p.win)}`] }[p.result];
+  return `<div class="res ${m[0]}">${m[1]}</div>`;
+}
+
+function render(s) {
+  state = s;
+  deadlineAt = performance.now() + (s.phase === 'playing' ? s.turn_remaining : s.remaining) * 1000;
+  phaseTotal = s.phase === 'playing' ? s.turn_total : (s.phase_total || 1);
+  const rid = 'r' + s.round_no;
+
+  document.getElementById('tableInfo').textContent = `${s.table} · игроков ${s.players.length}/${s.max_players}`;
+  document.getElementById('bal').textContent = Casino.fmt(s.you.chips);
+  document.getElementById('topup').style.display = (s.you.chips < 100 && s.you.bet === 0) ? '' : 'none';
+
+  // дилер
+  fillHand(document.getElementById('dealer'), s.dealer.cards, rid + 'd');
+  document.getElementById('dealerTotal').innerHTML = s.dealer.cards.length ? `<span class="total ${s.dealer.total > 21 ? 'bust' : ''}">${s.dealer.total > 21 ? 'Перебор ' : ''}${s.dealer.total}</span>` : '';
+
+  // остальные игроки
+  const others = document.getElementById('others'); others.innerHTML = '';
+  let me = null;
+  s.players.forEach(p => {
+    if (p.you) { me = p; return; }
+    const d = document.createElement('div'); d.className = 'seat' + (s.turn === p.seat ? ' turn' : '');
+    d.innerHTML = `<div class="nm">${esc(p.name)}</div><div class="hand"></div>${totalHtml(p)}<div class="betline">${p.bet ? 'Ставка ' + Casino.short(p.bet) : (p.in_round ? '' : 'ждёт')}</div>${resHtml(p, s.phase)}`;
+    fillHand(d.querySelector('.hand'), p.cards, `${rid}s${p.seat}`);
+    others.appendChild(d);
+  });
+
+  // вы
+  const meBox = document.getElementById('me');
+  meBox.classList.toggle('turn', s.turn === s.you.seat);
+  document.getElementById('meName').textContent = me ? esc(me.name) : '';
+  fillHand(document.getElementById('myHand'), me ? me.cards : [], `${rid}m`);
+  document.getElementById('myTotal').innerHTML = me ? totalHtml(me) : '';
+  document.getElementById('betline').textContent = s.you.bet ? `Ваша ставка: ${Casino.fmt(s.you.bet)}` : (s.phase === 'betting' ? 'Сделайте ставку' : (me && !me.in_round ? 'Вы войдёте со следующей раздачи' : ''));
+  document.getElementById('myRes').innerHTML = me ? resHtml(me, s.phase) : '';
+
+  // кнопки хода
+  const acts = document.getElementById('acts'); acts.innerHTML = '';
+  const label = { hit: 'Взять', stand: 'Стоп', double: 'Удвоить' };
+  s.actions.forEach(a => {
+    const b = document.createElement('button'); b.className = 'btn' + (a === 'hit' ? ' gold' : '');
+    b.textContent = label[a]; b.onclick = () => api.send({ type: 'casino_action', action: a }); acts.appendChild(b);
+  });
+
+  // панель ставок
+  const betting = s.phase === 'betting';
+  document.getElementById('betPanel').style.display = betting ? '' : 'none';
+  document.getElementById('rebet').disabled = !s.you.can_rebet;
+  document.getElementById('clear').disabled = !s.you.bet;
+
+  document.getElementById('status').textContent = ({
+    betting: 'Делайте ставки', playing: s.turn === s.you.seat ? 'Ваш ход' : 'Ходит другой игрок',
+    dealer: 'Играет дилер', payout: 'Итоги раунда'
+  })[s.phase];
+  tick();
+}
+function tick() {
+  if (!state) return;
+  const left = Math.max(0, (deadlineAt - performance.now()) / 1000);
+  const on = state.phase === 'betting' || (state.phase === 'playing' && state.turn !== null);
+  document.getElementById('timerBar').style.transform = `scaleX(${on ? Math.min(1, left / phaseTotal) : 0})`;
+}
+setInterval(tick, 150);
+
+const chipsEl = document.getElementById('chips');
+[10, 50, 100, 500, 1000].forEach(v => {
+  const b = document.createElement('button'); b.className = 'chip' + (v === chip ? ' sel' : ''); b.dataset.v = v; b.textContent = v;
+  b.onclick = () => {
+    chip = v; chipsEl.querySelectorAll('.chip').forEach(x => x.classList.toggle('sel', x === b));
+    if (state && state.phase === 'betting') api.send({ type: 'casino_bet', amount: v });   // нажатие на фишку = ставка
+  };
+  chipsEl.appendChild(b);
+});
+document.getElementById('clear').onclick = () => api.send({ type: 'casino_clear' });
+document.getElementById('rebet').onclick = () => api.send({ type: 'casino_rebet' });
+document.getElementById('topup').onclick = () => api.send({ type: 'casino_topup' });
+document.getElementById('back').onclick = () => api.leave(() => location.href = '/menu.html');
+document.getElementById('bal').textContent = Casino.fmt(Casino.chips());
+
+const api = Casino.open({ game: 'blackjack', onState: render });
+</script>
+</body>
+</html>

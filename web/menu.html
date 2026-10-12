@@ -1,0 +1,117 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>Казино</title>
+<link rel="stylesheet" href="/casino.css">
+<style>
+  .hero{text-align:center;padding:22px 0 8px}
+  .hero h1{font-family:var(--serif);font-size:38px;margin:0;letter-spacing:.5px}
+  .hero p{color:var(--muted);margin:6px 0 0}
+  .me{display:flex;gap:8px;align-items:center;justify-content:space-between;background:var(--smoke);
+      border:1px solid rgba(201,164,92,.3);border-radius:14px;padding:10px 12px;margin:14px 0}
+  .me input{background:transparent;border:0;border-bottom:1px solid var(--brass2);color:var(--ivory);
+      font:inherit;width:140px;padding:4px 2px;outline:none}
+  .games{display:grid;gap:12px}
+  a.game{display:grid;grid-template-columns:84px 1fr;gap:14px;align-items:center;text-decoration:none;color:inherit;
+      background:linear-gradient(135deg,var(--felt),var(--felt2));border:1px solid rgba(201,164,92,.35);
+      border-radius:18px;padding:14px;transition:transform .1s,border-color .15s}
+  a.game:active{transform:scale(.98)}
+  a.game:hover{border-color:var(--brass)}
+  .art{width:84px;height:84px;display:grid;place-items:center}
+  .game h2{font-family:var(--serif);margin:0 0 3px;font-size:22px}
+  .game p{margin:0;color:var(--muted);font-size:13px;line-height:1.35}
+  .game .live{margin-top:6px;font-size:12px;color:var(--win)}
+  .wheel-art{width:78px;height:78px;border-radius:50%;
+    background:conic-gradient(var(--red) 0 10deg,var(--black) 0 20deg,var(--red) 0 30deg,var(--black) 0 40deg,var(--red) 0 50deg,var(--black) 0 60deg,
+      var(--red) 0 70deg,var(--black) 0 80deg,var(--red) 0 90deg,var(--black) 0 100deg,var(--red) 0 110deg,var(--black) 0 120deg,
+      var(--red) 0 130deg,var(--black) 0 140deg,var(--red) 0 150deg,var(--black) 0 160deg,var(--red) 0 170deg,var(--black) 0 180deg,
+      var(--red) 0 190deg,var(--black) 0 200deg,var(--red) 0 210deg,var(--black) 0 220deg,var(--red) 0 230deg,var(--black) 0 240deg,
+      var(--red) 0 250deg,var(--black) 0 260deg,var(--red) 0 270deg,var(--black) 0 280deg,var(--red) 0 290deg,var(--black) 0 300deg,
+      var(--red) 0 310deg,var(--black) 0 320deg,var(--red) 0 330deg,var(--black) 0 340deg,var(--red) 0 350deg,var(--green) 0 360deg);
+    box-shadow:0 0 0 4px var(--brass2),inset 0 0 0 20px var(--felt2),inset 0 0 0 23px var(--brass);
+    animation:spin 14s linear infinite}
+  @keyframes spin{to{transform:rotate(360deg)}}
+  .board-art{display:grid;grid-template-columns:repeat(4,16px);gap:3px;transform:rotate(-6deg)}
+  .board-art i{height:16px;border-radius:3px;background:#8a5a2b;box-shadow:inset 0 -2px 0 rgba(0,0,0,.3)}
+  .board-art i.h{background:var(--win)}
+  .cards-art{position:relative;width:70px;height:78px}
+  .cards-art b{position:absolute;width:44px;height:62px;border-radius:7px;background:var(--ivory);color:#111;
+    display:grid;place-items:center;font-size:20px;font-weight:800;box-shadow:0 2px 5px rgba(0,0,0,.5)}
+  .cards-art b:nth-child(1){left:2px;top:12px;transform:rotate(-12deg)}
+  .cards-art b:nth-child(2){left:22px;top:6px;transform:rotate(8deg);color:var(--red)}
+  .note{color:var(--muted);font-size:12px;text-align:center;margin-top:18px;line-height:1.5}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <div class="hero">
+    <h1>Казино</h1>
+    <p>Игровые фишки, без денег</p>
+  </div>
+
+  <div class="me">
+    <input id="name" maxlength="16" aria-label="Ваше имя">
+    <div class="balance">🪙 <span id="bal">0</span></div>
+  </div>
+
+  <div class="games">
+    <a class="game" href="/index.html">
+      <div class="art"><div class="cards-art"><b>A♠</b><b>K♥</b></div></div>
+      <div><h2>Покер</h2><p>Техасский холдем по коду комнаты, с друзьями.</p></div>
+    </a>
+
+    <a class="game" href="/roulette.html">
+      <div class="art"><div class="wheel-art"></div></div>
+      <div><h2>Рулетка</h2><p>Европейское колесо, 37 ячеек. Стол подбирается сам.</p>
+        <div class="live" id="live-roulette"></div></div>
+    </a>
+
+    <a class="game" href="/axes.html">
+      <div class="art"><div class="board-art">
+        <i></i><i class="h"></i><i></i><i></i><i></i><i></i><i class="h"></i><i></i><i class="h"></i><i></i><i></i><i></i>
+      </div></div>
+      <div><h2>Три топора</h2><p>Квадратная доска, три топора, двенадцать клеток.</p>
+        <div class="live" id="live-axes"></div></div>
+    </a>
+
+    <a class="game" href="/blackjack.html">
+      <div class="art"><div class="cards-art"><b>10♣</b><b>A♦</b></div></div>
+      <div><h2>Блэкджек</h2><p>До 5 игроков против дилера. Блэкджек платит 3 к 2.</p>
+        <div class="live" id="live-blackjack"></div></div>
+    </a>
+  </div>
+
+  <p class="note">Игра только на виртуальные фишки.<br>Если фишки закончились — на любом столе появится кнопка «+5000».</p>
+</div>
+
+<script src="/casino.js"></script>
+<script>
+  const nameEl = document.getElementById('name');
+  nameEl.value = Casino.name();
+  nameEl.addEventListener('change', () => { Casino.setName(nameEl.value); nameEl.value = Casino.name(); });
+  document.getElementById('bal').textContent = Casino.fmt(Casino.chips());
+
+  function plural(n, a, b, c) { n = Math.abs(n) % 100; const m = n % 10; return n > 10 && n < 20 ? c : m > 1 && m < 5 ? b : m === 1 ? a : c; }
+  let ws;
+  function connect() {
+    ws = new WebSocket(Casino.wsUrl());
+    ws.onopen = poll;
+    ws.onmessage = e => {
+      let m; try { m = JSON.parse(e.data); } catch (_) { return; }
+      if (m.type !== 'casino_stats') return;
+      for (const g in m.stats) {
+        const el = document.getElementById('live-' + g); if (!el) continue;
+        const s = m.stats[g];
+        el.textContent = s.players ? `Сейчас играют: ${s.players} · ${s.tables} ${plural(s.tables, 'стол', 'стола', 'столов')}` : 'Свободно, заходите первым';
+      }
+    };
+    ws.onclose = () => setTimeout(connect, 3000);
+  }
+  function poll() { if (ws.readyState === 1) ws.send(JSON.stringify({ type: 'casino_stats' })); }
+  setInterval(poll, 4000);
+  connect();
+</script>
+</body>
+</html>

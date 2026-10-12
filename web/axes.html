@@ -1,0 +1,193 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>Три топора</title>
+<link rel="stylesheet" href="/casino.css">
+<style>
+  .arena{position:relative;margin-top:6px;overflow:hidden;border-radius:16px;
+    background:linear-gradient(180deg,#1a1410,#0e0b08);border:1px solid rgba(201,164,92,.35);padding:10px}
+  .grid{display:grid;grid-template-columns:repeat(4,1fr) 64px;gap:6px}
+  .cell{position:relative;aspect-ratio:1/.9;border-radius:8px;display:grid;place-items:center;text-align:center;cursor:pointer;
+    background:repeating-linear-gradient(90deg,#9a6a35 0 7px,#8a5a2b 7px 9px),#8a5a2b;
+    box-shadow:inset 0 -4px 0 rgba(0,0,0,.35),0 2px 0 rgba(0,0,0,.5);border:1px solid #4a2d12;transition:filter .15s}
+  .cell:active{filter:brightness(1.2)}
+  .cell b{font-family:var(--serif);font-size:24px;color:#2a1706;text-shadow:0 1px 0 rgba(255,255,255,.25)}
+  .cell small{display:block;font-size:10px;color:#3b2410;font-weight:700;margin-top:-2px}
+  .cell.hit{filter:brightness(1.1);box-shadow:0 0 0 3px var(--win),0 0 18px var(--win),inset 0 -4px 0 rgba(0,0,0,.35)}
+  .side{border-radius:8px;display:grid;place-items:center;text-align:center;cursor:pointer;position:relative;
+    background:var(--felt);border:1px solid var(--brass2);font-size:11px;font-weight:700;padding:2px;line-height:1.15}
+  .side small{display:block;color:var(--win);font-weight:700}
+  .side.hit{box-shadow:0 0 0 2px var(--win);background:#14584b}
+  .side:active{filter:brightness(1.3)}
+  .jack{display:grid;grid-template-columns:repeat(4,1fr);gap:6px;margin-top:8px}
+  .jack .side{min-height:46px;font-size:10.5px}
+  .jack-h{margin:10px 0 0;font-family:var(--serif);font-size:15px;color:var(--brass)}
+  .axe{position:absolute;left:0;top:0;width:64px;height:64px;pointer-events:none;z-index:5;will-change:transform}
+  .axe svg{width:100%;height:100%;filter:drop-shadow(0 3px 3px rgba(0,0,0,.6))}
+  .hist{display:flex;gap:6px;justify-content:center;flex-wrap:wrap;margin:6px 0;min-height:26px}
+  .hist span{font-size:11px;background:var(--smoke);border-radius:8px;padding:3px 7px;border:1px solid rgba(255,255,255,.08)}
+  .actions{display:flex;gap:8px;justify-content:center;margin-top:6px}
+  .sub{display:flex;justify-content:space-between;font-size:13px;color:var(--muted);margin-top:8px}
+  .count{font-family:var(--serif);font-size:30px;text-align:center;margin:2px 0}
+</style>
+</head>
+<body>
+<div class="topbar">
+  <button class="btn small" id="back">← Меню</button>
+  <div class="title">Три топора<small id="tableInfo">Ищем стол…</small></div>
+  <div class="balance">🪙 <span id="bal">0</span></div>
+</div>
+
+<div class="wrap">
+  <div class="count" id="count"></div>
+  <div class="timer"><i id="timerBar"></i></div>
+  <div class="banner" id="banner"></div>
+
+  <div class="arena" id="arena"><div class="grid" id="grid"></div></div>
+
+  <div class="jack-h">Все три топора в одной линии</div>
+  <div class="jack" id="jack"></div>
+
+  <div class="sub"><span>Ваша ставка: <b id="myBet">0</b></span><span id="phaseTxt"></span></div>
+  <div class="hist" id="hist"></div>
+  <div class="pill-row" id="players"></div>
+
+  <div class="chips" id="chips"></div>
+  <div class="actions">
+    <button class="btn" id="clear">Очистить</button>
+    <button class="btn gold" id="rebet">Повторить</button>
+    <button class="btn" id="topup" style="display:none">+5000</button>
+  </div>
+</div>
+
+<script src="/casino.js"></script>
+<script>
+const AXE_SVG = '<svg viewBox="0 0 64 64"><g transform="rotate(40 32 32)"><rect x="29" y="3" width="6" height="58" rx="3" fill="#7a4a21" stroke="#3b2410"/><path d="M35 8 C60 4 62 32 35 30 Z" fill="#d5dbe0" stroke="#59636d" stroke-width="1.5"/><path d="M40 12 C52 12 53 24 40 25" fill="none" stroke="#fff" stroke-opacity=".6" stroke-width="1.5"/></g></svg>';
+let chip = 100, state = null, deadlineAt = 0, phaseTotal = 1, animRound = -1, bannerRound = -1;
+const grid = document.getElementById('grid'), arena = document.getElementById('arena'), cells = [];
+
+function el(cls, kind, value, html, col, row) {
+  const d = document.createElement('div'); d.className = cls;
+  d.dataset.kind = kind; d.dataset.value = value; d.dataset.key = kind + ':' + value; d.innerHTML = html;
+  if (col) d.style.gridColumn = col; if (row) d.style.gridRow = row;
+  return d;
+}
+/* доска 4x3, справа кнопки рядов, снизу кнопки колонок */
+for (let r = 0; r < 3; r++) {
+  for (let c = 0; c < 4; c++) { const i = r * 4 + c; const d = el('cell', 'cell', i, `<div><b>${i + 1}</b><small data-m="cell:${i}"></small></div>`, c + 1, r + 1); grid.appendChild(d); cells[i] = d; }
+  grid.appendChild(el('side', 'row', r, `<div>Ряд ${r + 1}<small data-m="row:${r}"></small></div>`, 5, r + 1));
+}
+for (let c = 0; c < 4; c++) grid.appendChild(el('side', 'col', c, `<div>Кол. ${c + 1}<small data-m="col:${c}"></small></div>`, c + 1, 4));
+const jack = document.getElementById('jack');
+for (let r = 0; r < 3; r++) jack.appendChild(el('side', 'row3', r, `<div>Ряд ${r + 1}<small data-m="row3:${r}"></small></div>`));
+for (let c = 0; c < 4; c++) { const d = el('side', 'col3', c, `<div>Кол. ${c + 1}<small data-m="col3:${c}"></small></div>`); jack.appendChild(d); }
+jack.style.gridTemplateColumns = 'repeat(7,1fr)';
+grid.querySelectorAll('.side').forEach(x => x.style.minHeight = '40px');
+
+function onClick(e) {
+  const t = e.target.closest('[data-kind]'); if (!t) return;
+  if (!state || state.phase !== 'betting') { Casino.toast('Ставки принимаются только в начале раунда'); return; }
+  api.send({ type: 'casino_bet', kind: t.dataset.kind, value: +t.dataset.value, amount: chip });
+}
+grid.addEventListener('click', onClick); jack.addEventListener('click', onClick);
+
+const chipsEl = document.getElementById('chips');
+[10, 50, 100, 500, 1000].forEach(v => {
+  const b = document.createElement('button'); b.className = 'chip' + (v === chip ? ' sel' : ''); b.dataset.v = v; b.textContent = v;
+  b.onclick = () => { chip = v; chipsEl.querySelectorAll('.chip').forEach(x => x.classList.toggle('sel', x === b)); };
+  chipsEl.appendChild(b);
+});
+document.getElementById('clear').onclick = () => api.send({ type: 'casino_clear' });
+document.getElementById('rebet').onclick = () => api.send({ type: 'casino_rebet' });
+document.getElementById('topup').onclick = () => api.send({ type: 'casino_topup' });
+document.getElementById('back').onclick = () => api.leave(() => location.href = '/menu.html');
+document.getElementById('bal').textContent = Casino.fmt(Casino.chips());
+
+/* ---------- топоры ---------- */
+function clearAxes() { arena.querySelectorAll('.axe').forEach(x => x.remove()); document.querySelectorAll('.hit').forEach(x => x.classList.remove('hit')); }
+function centerOf(i) {
+  const a = arena.getBoundingClientRect(), c = cells[i].getBoundingClientRect();
+  return { x: c.left - a.left + c.width / 2 - 32, y: c.top - a.top + c.height / 2 - 40 };
+}
+function markHit(outcome) {
+  const s = new Set(outcome);
+  document.querySelectorAll('.cell').forEach(c => c.classList.toggle('hit', s.has(+c.dataset.value)));
+  document.querySelectorAll('.side[data-kind="row"],.side[data-kind="col"]').forEach(b => {
+    const v = +b.dataset.value;
+    b.classList.toggle('hit', outcome.some(x => b.dataset.kind === 'row' ? Math.floor(x / 4) === v : x % 4 === v));
+  });
+}
+function landAxes(outcome, elapsed) {
+  clearAxes();
+  const START = 400, GAP = 1300, FLY = 1000, a = arena.getBoundingClientRect();
+  outcome.forEach((cellIdx, i) => {
+    const e = document.createElement('div'); e.className = 'axe'; e.innerHTML = AXE_SVG; arena.appendChild(e);
+    const to = centerOf(cellIdx), rot = -25 + i * 8;
+    const final = `translate(${to.x}px,${to.y}px) rotate(${rot}deg)`;
+    const t0 = START + i * GAP, tLand = t0 + FLY;
+    const hit = () => { cells[cellIdx].classList.add('hit'); cells[cellIdx].animate([{ transform: 'translateX(-3px)' }, { transform: 'translateX(3px)' }, { transform: 'none' }], { duration: 160 }); };
+    if (elapsed >= tLand) { e.style.transform = final; cells[cellIdx].classList.add('hit'); return; }
+    const from = `translate(${a.width / 2 - 32 + (i - 1) * 50}px,${a.height + 20}px) rotate(0deg) scale(1.3)`;
+    e.style.transform = from;
+    e.animate([{ transform: from }, { transform: `translate(${to.x}px,${to.y - 10}px) rotate(${720 + rot}deg) scale(1)`, offset: .9 }, { transform: final.replace('rotate(' + rot, 'rotate(' + (720 + rot)) }],
+      { duration: FLY, delay: Math.max(0, t0 - elapsed), easing: 'cubic-bezier(.25,.7,.35,1)', fill: 'both' });
+    setTimeout(hit, Math.max(0, tLand - elapsed));
+  });
+}
+
+/* ---------- состояние ---------- */
+function render(s) {
+  state = s;
+  deadlineAt = performance.now() + s.remaining * 1000; phaseTotal = s.phase_total || 1;
+  document.getElementById('tableInfo').textContent = `${s.table} · игроков ${s.players.length}/${s.max_players}`;
+  document.getElementById('bal').textContent = Casino.fmt(s.you.chips);
+  document.getElementById('myBet').textContent = Casino.fmt(s.you.total_bet);
+  document.getElementById('topup').style.display = (s.you.chips < 100 && s.you.total_bet === 0) ? '' : 'none';
+  document.getElementById('rebet').disabled = !s.you.can_rebet || s.phase !== 'betting';
+  document.getElementById('clear').disabled = s.phase !== 'betting' || !s.you.total_bet;
+  document.getElementById('phaseTxt').textContent = { betting: 'Делайте ставки', spin: 'Топоры летят', result: 'Результат' }[s.phase];
+
+  if (s.mults) document.querySelectorAll('[data-m]').forEach(x => { const m = s.mults[x.dataset.m]; if (m) x.textContent = '×' + m; });
+
+  document.querySelectorAll('.stack').forEach(x => x.remove());
+  for (const [key, amt] of Object.entries(s.you.bets)) {
+    const t = document.querySelector(`[data-key="${key}"]`);
+    if (t) { const st = document.createElement('span'); st.className = 'stack'; st.textContent = Casino.short(amt); t.appendChild(st); }
+  }
+
+  const pl = document.getElementById('players'); pl.innerHTML = '';
+  s.players.forEach(p => {
+    const d = document.createElement('div'); d.className = 'pill' + (p.you ? ' you' : '');
+    const w = s.phase === 'result' && p.win ? ` <b style="color:${p.win > 0 ? 'var(--win)' : '#e48a8f'}">${p.win > 0 ? '+' : ''}${Casino.short(p.win)}</b>` : (p.bet ? ` · ${Casino.short(p.bet)}` : '');
+    d.innerHTML = `${p.name.replace(/[<>&]/g, '')}${w}`; pl.appendChild(d);
+  });
+  const h = document.getElementById('hist'); h.innerHTML = '';
+  s.history.slice().reverse().slice(0, 6).forEach(o => { const d = document.createElement('span'); d.textContent = o.map(x => x + 1).join('·'); h.appendChild(d); });
+
+  if (s.phase === 'betting') { clearAxes(); }
+  else if (s.outcome && animRound !== s.round_no) {
+    animRound = s.round_no;
+    const elapsed = s.phase === 'spin' ? (s.phase_total - s.remaining) * 1000 : 1e9;
+    landAxes(s.outcome, elapsed);
+  }
+  if (s.phase === 'result' && bannerRound !== s.round_no) {
+    bannerRound = s.round_no; const b = document.getElementById('banner');
+    if (s.you.total_bet) { b.className = 'banner ' + (s.you.win > 0 ? 'win' : 'lose'); b.textContent = s.you.win > 0 ? `Выигрыш +${Casino.fmt(s.you.win)}` : `Проигрыш ${Casino.fmt(s.you.win)}`; }
+    if (s.outcome) markHit(s.outcome);
+  }
+  if (s.phase === 'betting') { const b = document.getElementById('banner'); b.textContent = ''; b.className = 'banner'; }
+  tick();
+}
+function tick() {
+  if (!state) return;
+  const left = Math.max(0, (deadlineAt - performance.now()) / 1000);
+  document.getElementById('count').textContent = state.phase === 'betting' ? Math.ceil(left) : '';
+  document.getElementById('timerBar').style.transform = `scaleX(${state.phase === 'result' ? 0 : Math.min(1, left / phaseTotal)})`;
+}
+setInterval(tick, 150);
+const api = Casino.open({ game: 'axes', onState: render });
+</script>
+</body>
+</html>

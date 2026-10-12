@@ -1,0 +1,266 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>Рулетка</title>
+<link rel="stylesheet" href="/casino.css">
+<style>
+  .wheel-box{position:relative;width:min(88vw,340px);aspect-ratio:1;margin:8px auto 2px}
+  #wheel{width:100%;height:100%;display:block}
+  #center{position:absolute;inset:0;display:grid;place-items:center;pointer-events:none;text-align:center}
+  #centerBig{font-family:var(--serif);font-size:44px;font-weight:700;line-height:1;text-shadow:0 2px 6px rgba(0,0,0,.6)}
+  #centerSmall{font-size:12px;color:var(--muted);margin-top:4px}
+  .pointer{position:absolute;left:50%;top:-4px;width:0;height:0;transform:translateX(-50%);
+    border-left:9px solid transparent;border-right:9px solid transparent;border-top:16px solid var(--win);
+    filter:drop-shadow(0 2px 2px rgba(0,0,0,.6));z-index:2}
+  .history{display:flex;gap:5px;justify-content:center;flex-wrap:wrap;min-height:28px;margin:6px 0}
+  .h{width:26px;height:26px;border-radius:50%;display:grid;place-items:center;font-size:12px;font-weight:700;color:#fff}
+  .red{background:var(--red)} .black{background:var(--black)} .green{background:var(--green)}
+
+  /* стол: 5 колонок — десятки | 3 числа | внешние ставки */
+  .board{display:grid;grid-template-columns:44px repeat(3,1fr) 58px;grid-auto-rows:34px;gap:3px;
+    background:var(--felt2);padding:6px;border-radius:14px;border:1px solid rgba(201,164,92,.35);margin-top:8px;user-select:none}
+  .c{position:relative;display:grid;place-items:center;border-radius:6px;font-weight:700;font-size:14px;
+     border:1px solid rgba(255,255,255,.18);cursor:pointer;background:rgba(255,255,255,.04);text-align:center;line-height:1.05}
+  .c.red{background:var(--red)} .c.black{background:var(--black)} .c.green{background:var(--green)}
+  .c.out{font-size:11px;font-weight:600}
+  .c:active{filter:brightness(1.3)}
+  .c.win{outline:3px solid var(--win);outline-offset:-1px;animation:blink .6s 4}
+  @keyframes blink{50%{filter:brightness(1.7)}}
+  .c .rot{writing-mode:vertical-rl;transform:rotate(180deg)}
+  .actions{display:flex;gap:8px;justify-content:center;margin-top:6px}
+  .sub{display:flex;justify-content:space-between;font-size:13px;color:var(--muted);margin-top:6px}
+</style>
+</head>
+<body>
+<div class="topbar">
+  <button class="btn small" id="back">← Меню</button>
+  <div class="title">Рулетка<small id="tableInfo">Ищем стол…</small></div>
+  <div class="balance">🪙 <span id="bal">0</span></div>
+</div>
+
+<div class="wrap">
+  <div class="wheel-box">
+    <div class="pointer"></div>
+    <canvas id="wheel"></canvas>
+    <div id="center"><div><div id="centerBig"></div><div id="centerSmall"></div></div></div>
+  </div>
+  <div class="timer"><i id="timerBar"></i></div>
+  <div class="banner" id="banner"></div>
+  <div class="history" id="history"></div>
+  <div class="pill-row" id="players"></div>
+
+  <div class="board" id="board"></div>
+  <div class="sub"><span>Ваша ставка: <b id="myBet">0</b></span><span id="phaseTxt"></span></div>
+
+  <div class="chips" id="chips"></div>
+  <div class="actions">
+    <button class="btn" id="clear">Очистить</button>
+    <button class="btn gold" id="rebet">Повторить</button>
+    <button class="btn" id="topup" style="display:none">+5000</button>
+  </div>
+</div>
+
+<script src="/casino.js"></script>
+<script>
+const TAU = Math.PI * 2;
+const RED = new Set([1,3,5,7,9,12,14,16,18,19,21,23,25,27,30,32,34,36]);
+const colorOf = n => n === 0 ? 'green' : RED.has(n) ? 'red' : 'black';
+let ORDER = [0,32,15,19,4,21,2,25,17,34,6,27,13,36,11,30,8,23,10,5,24,16,33,1,20,14,31,9,22,18,29,7,28,12,35,3,26];
+const STEP = TAU / 37;
+
+let chip = 100, state = null, deadlineAt = 0, phaseTotal = 1;
+let wheelAngle = 0, ballAngle = -Math.PI / 2, ballR = 0, ballVisible = false, anim = null, animRound = -1, bannerRound = -1;
+
+/* ---------- стол ---------- */
+const board = document.getElementById('board');
+function cell(cls, kind, value, html, col, row, spanC, spanR) {
+  const d = document.createElement('div');
+  d.className = 'c ' + cls; d.dataset.kind = kind; d.dataset.value = value; d.dataset.key = kind + ':' + value;
+  d.innerHTML = html;
+  d.style.gridColumn = col + (spanC ? ' / span ' + spanC : '');
+  d.style.gridRow = row + (spanR ? ' / span ' + spanR : '');
+  board.appendChild(d);
+}
+cell('green', 'num', 0, '0', 2, 1, 3, 1);
+for (let r = 0; r < 12; r++) for (let c = 0; c < 3; c++) {
+  const n = r * 3 + c + 1;
+  cell(colorOf(n), 'num', n, n, c + 2, r + 2);
+}
+[1,2,3].forEach(k => cell('out', 'col', k, '2:1', k + 1, 14));
+[1,2,3].forEach(k => cell('out', 'dozen', k, `<span class="rot">${['1–12','13–24','25–36'][k-1]}</span>`, 1, 2 + (k-1)*4, 1, 4));
+[['low','1–18'],['even','Чёт'],['red','Красное'],['black','Чёрное'],['odd','Нечёт'],['high','19–36']].forEach(([k, t], i) =>
+  cell('out' + (k==='red'?' red':k==='black'?' black':''), k, 0, `<span class="rot">${t}</span>`, 5, 2 + i*2, 1, 2));
+
+board.addEventListener('click', e => {
+  const el = e.target.closest('[data-kind]'); if (!el) return;
+  if (!state || state.phase !== 'betting') { Casino.toast('Ставки принимаются только в начале раунда'); return; }
+  api.send({ type: 'casino_bet', kind: el.dataset.kind, value: +el.dataset.value, amount: chip });
+});
+
+/* ---------- фишки и кнопки ---------- */
+const chipsEl = document.getElementById('chips');
+[10,50,100,500,1000].forEach(v => {
+  const b = document.createElement('button'); b.className = 'chip' + (v === chip ? ' sel' : ''); b.dataset.v = v; b.textContent = v;
+  b.onclick = () => { chip = v; chipsEl.querySelectorAll('.chip').forEach(x => x.classList.toggle('sel', x === b)); };
+  chipsEl.appendChild(b);
+});
+document.getElementById('clear').onclick = () => api.send({ type: 'casino_clear' });
+document.getElementById('rebet').onclick = () => api.send({ type: 'casino_rebet' });
+document.getElementById('topup').onclick = () => api.send({ type: 'casino_topup' });
+document.getElementById('back').onclick = () => api.leave(() => location.href = '/menu.html');
+document.getElementById('bal').textContent = Casino.fmt(Casino.chips());
+
+/* ---------- состояние ---------- */
+function render(s) {
+  const first = !state;
+  state = s;
+  if (s.wheel) ORDER = s.wheel;
+  deadlineAt = performance.now() + s.remaining * 1000; phaseTotal = s.phase_total || 1;
+
+  document.getElementById('tableInfo').textContent = `${s.table} · игроков ${s.players.length}/${s.max_players}`;
+  document.getElementById('bal').textContent = Casino.fmt(s.you.chips);
+  document.getElementById('myBet').textContent = Casino.fmt(s.you.total_bet);
+  document.getElementById('topup').style.display = (s.you.chips < 100 && s.you.total_bet === 0) ? '' : 'none';
+  document.getElementById('rebet').disabled = !s.you.can_rebet || s.phase !== 'betting';
+  document.getElementById('clear').disabled = s.phase !== 'betting' || !s.you.total_bet;
+  document.getElementById('phaseTxt').textContent = { betting: 'Делайте ставки', spin: 'Ставки закрыты', result: 'Результат' }[s.phase];
+
+  // ставки на столе
+  board.querySelectorAll('.stack').forEach(x => x.remove());
+  for (const [key, amt] of Object.entries(s.you.bets)) {
+    const el = board.querySelector(`[data-key="${key}"]`);
+    if (el) { const st = document.createElement('span'); st.className = 'stack'; st.textContent = Casino.short(amt); el.appendChild(st); }
+  }
+  board.querySelectorAll('.win').forEach(x => x.classList.remove('win'));
+  if (s.phase === 'result' && s.outcome !== null && animDone()) markWin(s.outcome);
+
+  // игроки и история
+  const pl = document.getElementById('players'); pl.innerHTML = '';
+  s.players.forEach(p => {
+    const d = document.createElement('div'); d.className = 'pill' + (p.you ? ' you' : '');
+    const w = s.phase === 'result' && p.win ? ` <b style="color:${p.win > 0 ? 'var(--win)' : '#e48a8f'}">${p.win > 0 ? '+' : ''}${Casino.short(p.win)}</b>` : (p.bet ? ` · ${Casino.short(p.bet)}` : '');
+    d.innerHTML = `${p.name.replace(/[<>&]/g, '')}${w}`; pl.appendChild(d);
+  });
+  const hs = document.getElementById('history'); hs.innerHTML = '';
+  s.history.slice().reverse().forEach(n => { const d = document.createElement('div'); d.className = 'h ' + colorOf(n); d.textContent = n; hs.appendChild(d); });
+
+  // анимация колеса
+  if (s.phase === 'spin' && s.outcome !== null) {
+    if (animRound !== s.round_no) { animRound = s.round_no; startSpin(s); }
+  } else if (s.phase === 'result' && s.outcome !== null) {
+    if (animRound !== s.round_no) { animRound = s.round_no; snapTo(s.outcome); }
+  } else if (s.phase === 'betting') { anim = null; ballVisible = false; }
+  updateCenter();
+}
+const animDone = () => !anim;
+
+function markWin(n) {
+  const el = board.querySelector(`[data-key="num:${n}"]`); if (el) el.classList.add('win');
+}
+
+function mod(a, m) { return ((a % m) + m) % m; }
+function targetAngle(w0, n) {
+  const k = ORDER.indexOf(n);
+  return w0 + TAU * 6 + mod(-k * STEP - w0, TAU);
+}
+function startSpin(s) {
+  const dur = s.phase_total * 1000, elapsed = (s.phase_total - s.remaining) * 1000;
+  anim = { t0: performance.now() - elapsed, dur, w0: wheelAngle, w1: targetAngle(wheelAngle, s.outcome), n: s.outcome, turns: 9 };
+  ballVisible = true;
+}
+function snapTo(n) {
+  wheelAngle = mod(-ORDER.indexOf(n) * STEP, TAU); ballAngle = -Math.PI / 2; ballVisible = true; ballR = 'pocket'; anim = null;
+}
+
+function updateCenter() {
+  const big = document.getElementById('centerBig'), small = document.getElementById('centerSmall');
+  const s = state; if (!s) return;
+  const left = Math.max(0, (deadlineAt - performance.now()) / 1000);
+  document.getElementById('timerBar').style.transform = `scaleX(${s.phase === 'betting' ? Math.min(1, left / phaseTotal) : s.phase === 'spin' ? Math.min(1, left / phaseTotal) : 0})`;
+  if (s.phase === 'betting') { big.textContent = Math.ceil(left); big.style.color = ''; small.textContent = 'до старта'; }
+  else if (s.phase === 'spin' && anim) { big.textContent = '…'; big.style.color = ''; small.textContent = 'шарик летит'; }
+  else if (s.outcome !== null) {
+    big.textContent = s.outcome; big.style.color = s.outcome === 0 ? '#5fe0a0' : RED.has(s.outcome) ? '#ff6b73' : '#fff';
+    small.textContent = s.outcome === 0 ? 'зеро' : (RED.has(s.outcome) ? 'красное' : 'чёрное') + (s.outcome % 2 ? ', нечёт' : ', чёт');
+    if (bannerRound !== s.round_no && s.phase === 'result') {
+      bannerRound = s.round_no; const b = document.getElementById('banner'); const w = s.you.win;
+      if (s.you.total_bet) { b.className = 'banner ' + (w > 0 ? 'win' : 'lose'); b.textContent = w > 0 ? `Выигрыш +${Casino.fmt(w)}` : `Проигрыш ${Casino.fmt(w)}`; }
+      markWin(s.outcome);
+    }
+  }
+  if (s.phase === 'betting') { const b = document.getElementById('banner'); b.textContent = ''; b.className = 'banner'; }
+}
+setInterval(updateCenter, 150);
+
+/* ---------- колесо ---------- */
+const cv = document.getElementById('wheel'), ctx = cv.getContext('2d');
+function fit() {
+  const r = cv.getBoundingClientRect(), d = Math.min(2, window.devicePixelRatio || 1);
+  cv.width = Math.round(r.width * d); cv.height = Math.round(r.height * d);
+}
+window.addEventListener('resize', fit); fit();
+
+function draw(now) {
+  const W = cv.width, cx = W / 2, cy = W / 2, R = W / 2 - 2;
+  ctx.clearRect(0, 0, W, W);
+
+  if (anim) {
+    const u = Math.min(1, (now - anim.t0) / anim.dur), e = 1 - Math.pow(1 - u, 3);
+    wheelAngle = anim.w0 + (anim.w1 - anim.w0) * e;
+    const eb = 1 - Math.pow(1 - u, 2.2);
+    ballAngle = -Math.PI / 2 + (1 - eb) * TAU * anim.turns;
+    if (u >= 1) { anim = null; ballAngle = -Math.PI / 2; ballR = 'pocket'; markWin(state.outcome); updateCenter(); }
+    else {
+      const k = u < .7 ? 0 : (u - .7) / .3, sm = k * k * (3 - 2 * k);
+      ballR = R * (0.87 + (0.665 - 0.87) * sm) + (u > .85 ? Math.sin(u * 70) * R * 0.01 * (1 - u) * 6 : 0);
+    }
+  } else if (!state || state.phase === 'betting') wheelAngle += 0.004;
+
+  // деревянный борт
+  let g = ctx.createRadialGradient(cx, cy, R * .8, cx, cy, R);
+  g.addColorStop(0, '#5a3a1c'); g.addColorStop(.6, '#8a5a2b'); g.addColorStop(1, '#3b2410');
+  ctx.fillStyle = g; ctx.beginPath(); ctx.arc(cx, cy, R, 0, TAU); ctx.fill();
+  // дорожка шарика
+  ctx.fillStyle = '#0a2b25'; ctx.beginPath(); ctx.arc(cx, cy, R * .93, 0, TAU); ctx.fill();
+  ctx.strokeStyle = '#c9a45c'; ctx.lineWidth = W * .006; ctx.beginPath(); ctx.arc(cx, cy, R * .93, 0, TAU); ctx.stroke();
+
+  // ячейки
+  const rOut = R * .80, rIn = R * .54;
+  for (let i = 0; i < 37; i++) {
+    const n = ORDER[i], a0 = wheelAngle + i * STEP - Math.PI / 2 - STEP / 2, a1 = a0 + STEP;
+    ctx.beginPath(); ctx.moveTo(cx + rIn * Math.cos(a0), cy + rIn * Math.sin(a0));
+    ctx.arc(cx, cy, rOut, a0, a1); ctx.arc(cx, cy, rIn, a1, a0, true); ctx.closePath();
+    ctx.fillStyle = n === 0 ? '#1f7a4d' : RED.has(n) ? '#c8323c' : '#14181a'; ctx.fill();
+    ctx.strokeStyle = '#c9a45c'; ctx.lineWidth = W * .0025; ctx.stroke();
+    ctx.save(); ctx.translate(cx, cy); ctx.rotate(wheelAngle + i * STEP);
+    ctx.fillStyle = '#fff'; ctx.font = `700 ${W * .045}px system-ui`; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+    ctx.fillText(n, 0, -R * .72); ctx.restore();
+  }
+  // ступица
+  g = ctx.createRadialGradient(cx, cy, 0, cx, cy, rIn);
+  g.addColorStop(0, '#0d3b33'); g.addColorStop(1, '#082a25');
+  ctx.fillStyle = g; ctx.beginPath(); ctx.arc(cx, cy, rIn, 0, TAU); ctx.fill();
+  ctx.strokeStyle = '#c9a45c'; ctx.lineWidth = W * .008; ctx.beginPath(); ctx.arc(cx, cy, rIn, 0, TAU); ctx.stroke();
+  ctx.save(); ctx.translate(cx, cy); ctx.rotate(wheelAngle * 1);
+  ctx.strokeStyle = 'rgba(201,164,92,.5)'; ctx.lineWidth = W * .006;
+  for (let i = 0; i < 4; i++) { ctx.rotate(Math.PI / 2); ctx.beginPath(); ctx.moveTo(0, rIn * .55); ctx.lineTo(0, rIn * .95); ctx.stroke(); }
+  ctx.restore();
+
+  // шарик
+  if (ballVisible) {
+    const r = ballR === 'pocket' ? R * .665 : ballR;
+    const bx = cx + r * Math.cos(ballAngle), by = cy + r * Math.sin(ballAngle);
+    const bg = ctx.createRadialGradient(bx - W * .006, by - W * .006, 1, bx, by, W * .02);
+    bg.addColorStop(0, '#fff'); bg.addColorStop(1, '#b9c2c9');
+    ctx.fillStyle = bg; ctx.beginPath(); ctx.arc(bx, by, W * .02, 0, TAU); ctx.fill();
+  }
+  requestAnimationFrame(draw);
+}
+requestAnimationFrame(draw);
+
+const api = Casino.open({ game: 'roulette', onState: render });
+</script>
+</body>
+</html>
