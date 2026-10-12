@@ -22,6 +22,7 @@ from ws_transport import (
     do_ws_handshake, recv_ws_frame, send_json, send_ws_close
 )
 from poker_core import Table
+from casino import Casino
 
 DEFAULT_PORT = int(os.environ.get("PORT", 8000))
 WEB_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "web")
@@ -113,6 +114,10 @@ class ClientHandler(threading.Thread):
 
     def handle(self, msg):
         mtype = msg.get("type")
+        # --- казино: рулетка, три топора, блэкджек ---
+        if mtype and mtype.startswith("casino_"):
+            self.server.casino.handle(self, msg)
+            return
         if mtype == "create_room":
             code = self.server.create_room(
                 self.pid,
@@ -175,6 +180,7 @@ class ClientHandler(threading.Thread):
         if not self.alive:
             return
         self.alive = False
+        self.server.casino.leave(self)
         if self.table_code and self.pid:
             self.server.leave_room(self.table_code, self.pid)
         try:
@@ -193,6 +199,7 @@ class PokerServer:
         self.lock = threading.RLock()
         self.sock = None
         self.running = False
+        self.casino = Casino()
 
     def start(self):
         self.sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
@@ -200,6 +207,7 @@ class PokerServer:
         self.sock.bind(("0.0.0.0", self.port))
         self.sock.listen(32)
         self.running = True
+        self.casino.start()
         threading.Thread(target=self._accept_loop, daemon=True).start()
 
     def stop(self):
@@ -235,7 +243,7 @@ class PokerServer:
 
     def _serve_static(self, conn, path):
         if path == "/":
-            path = "/index.html"
+            path = "/menu.html"   # главное меню казино; покер — /index.html
         safe_path = os.path.normpath(path).lstrip(os.sep)
         full_path = os.path.join(WEB_DIR, safe_path)
 
