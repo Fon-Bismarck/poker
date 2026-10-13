@@ -1,0 +1,85 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>Вход</title>
+<link rel="stylesheet" href="/casino.css">
+<style>
+  .card{margin:8vh auto 0;max-width:380px;background:linear-gradient(160deg,var(--felt),var(--felt2));
+    border:1px solid rgba(201,164,92,.4);border-radius:20px;padding:22px}
+  h1{font-family:var(--serif);text-align:center;margin:0 0 4px;font-size:32px}
+  .sub{text-align:center;color:var(--muted);margin:0 0 16px;font-size:14px}
+  .tabs{display:flex;gap:6px;margin-bottom:14px}
+  .tabs button{flex:1;padding:10px;border-radius:10px;border:1px solid rgba(201,164,92,.35);background:transparent}
+  .tabs button.on{background:var(--brass);color:#2a1d04;font-weight:700}
+  label{display:block;font-size:12px;color:var(--muted);margin:10px 0 4px}
+  input{width:100%;padding:12px;border-radius:10px;border:1px solid rgba(255,255,255,.18);background:rgba(0,0,0,.3);color:var(--ivory);font:inherit;font-size:16px}
+  .go{width:100%;margin-top:16px;padding:13px;font-size:16px}
+  .err{color:#ff9aa2;min-height:20px;margin-top:10px;font-size:14px;text-align:center}
+  .hint{font-size:12px;color:var(--muted);margin-top:8px}
+</style>
+</head>
+<body>
+<div class="card">
+  <h1>Казино</h1>
+  <p class="sub">Покер, рулетка, блэкджек, автомат — один аккаунт</p>
+  <div class="tabs"><button id="tLogin" class="on">Вход</button><button id="tReg">Регистрация</button></div>
+  <label for="u">Имя игрока</label>
+  <input id="u" autocomplete="username" maxlength="16" autocapitalize="off">
+  <label for="p">Пароль</label>
+  <input id="p" type="password" autocomplete="current-password" maxlength="64">
+  <div id="p2box" style="display:none">
+    <label for="p2">Повторите пароль</label>
+    <input id="p2" type="password" autocomplete="new-password" maxlength="64">
+  </div>
+  <button class="btn gold go" id="go">Войти</button>
+  <div class="err" id="err"></div>
+  <div class="hint" id="hint">Имя: 3–16 символов (буквы, цифры, _ и -). Пароль — от 4 символов. При регистрации вы получите 1000 фишек.</div>
+</div>
+
+<script src="/account.js"></script>
+<script>
+let mode = 'login', busy = false;
+const $ = id => document.getElementById(id);
+function setMode(m) {
+  mode = m;
+  $('tLogin').classList.toggle('on', m === 'login'); $('tReg').classList.toggle('on', m === 'reg');
+  $('p2box').style.display = m === 'reg' ? '' : 'none';
+  $('go').textContent = m === 'reg' ? 'Создать аккаунт' : 'Войти';
+  $('p').autocomplete = m === 'reg' ? 'new-password' : 'current-password';
+  $('err').textContent = '';
+}
+$('tLogin').onclick = () => setMode('login'); $('tReg').onclick = () => setMode('reg');
+
+function next() {
+  const n = new URLSearchParams(location.search).get('next');
+  return n && n.startsWith('/') && !n.startsWith('//') && !n.startsWith('/login') ? n : '/menu.html';
+}
+function submit() {
+  if (busy) return;
+  const u = $('u').value.trim(), p = $('p').value;
+  if (!u || !p) { $('err').textContent = 'Введите имя и пароль'; return; }
+  if (mode === 'reg' && p !== $('p2').value) { $('err').textContent = 'Пароли не совпадают'; return; }
+  busy = true; $('go').disabled = true; $('err').textContent = '';
+  const ws = new WebSocket(Account.wsUrl());
+  ws.onopen = () => ws.send(JSON.stringify({ type: mode === 'reg' ? 'auth_register' : 'auth_login', username: u, password: p }));
+  ws.onmessage = e => {
+    const m = JSON.parse(e.data);
+    if (m.type === 'auth_ok') { Account.setToken(m.token); ws.close(); location.replace(next()); }
+    else if (m.type === 'auth_error') { $('err').textContent = m.message; busy = false; $('go').disabled = false; ws.close(); }
+  };
+  ws.onerror = () => { $('err').textContent = 'Не удалось подключиться к серверу'; busy = false; $('go').disabled = false; };
+}
+$('go').onclick = submit;
+['u', 'p', 'p2'].forEach(id => $(id).addEventListener('keydown', e => { if (e.key === 'Enter') submit(); }));
+
+// Уже вошли — сразу дальше
+if (Account.token()) {
+  const ws = new WebSocket(Account.wsUrl());
+  ws.onopen = () => ws.send(JSON.stringify({ type: 'auth_token', token: Account.token() }));
+  ws.onmessage = e => { const m = JSON.parse(e.data); if (m.type === 'auth_ok') location.replace(next()); else { Account.setToken(null); } ws.close(); };
+}
+</script>
+</body>
+</html>

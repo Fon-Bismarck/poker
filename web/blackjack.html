@@ -70,9 +70,10 @@
       <button class="btn gold" id="rebet">Повторить</button>
     </div>
   </div>
-  <div class="actions"><button class="btn" id="topup" style="display:none">+5000</button></div>
+  <div class="actions"></div>
 </div>
 
+<script src="/account.js"></script>
 <script src="/casino.js"></script>
 <script>
 const SYM = { S: '♠', H: '♥', D: '♦', C: '♣' };
@@ -114,7 +115,6 @@ function render(s) {
 
   document.getElementById('tableInfo').textContent = `${s.table} · игроков ${s.players.length}/${s.max_players}`;
   document.getElementById('bal').textContent = Casino.fmt(s.you.chips);
-  document.getElementById('topup').style.display = (s.you.chips < 100 && s.you.bet === 0) ? '' : 'none';
 
   // дилер
   fillHand(document.getElementById('dealer'), s.dealer.cards, rid + 'd');
@@ -179,9 +179,7 @@ const chipsEl = document.getElementById('chips');
 });
 document.getElementById('clear').onclick = () => api.send({ type: 'casino_clear' });
 document.getElementById('rebet').onclick = () => api.send({ type: 'casino_rebet' });
-document.getElementById('topup').onclick = () => api.send({ type: 'casino_topup' });
 document.getElementById('back').onclick = () => api.leave(() => location.href = '/menu.html');
-document.getElementById('bal').textContent = Casino.fmt(Casino.chips());
 
 const api = Casino.open({ game: 'blackjack', onState: render });
 </script>

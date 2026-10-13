@@ -1,25 +1,8 @@
 // -*- coding: utf-8 -*-
 // Клиент покера: работает одинаково в браузере на ПК и на телефоне.
+// Банк фишек, имя и ежедневный бонус хранятся на сервере в аккаунте игрока.
 
 const SUIT_RED = new Set(["♥", "♦"]);
-const BONUS_AMOUNT = 1000;
-const BONUS_COOLDOWN_MS = 24 * 60 * 60 * 1000;
-const BG_PRICE = 20000;
-const CUSTOM_BG_PRICE = 100000;
-
-// Пресеты фонов для магазина. Сам стол (зелёный овал) цвет не меняет —
-// меняется только фон вокруг него, чтобы карты не терялись на фоне стола.
-const BG_PRESETS = [
-  { id: "bg_navy", name: "Тёмно-синий", color: "#0d1b3e" },
-  { id: "bg_purple", name: "Баклажан", color: "#2e1a47" },
-  { id: "bg_wine", name: "Бордовый", color: "#4a1620" },
-  { id: "bg_charcoal", name: "Графит", color: "#232323" },
-  { id: "bg_petrol", name: "Тёмная бирюза", color: "#0b3d3a" },
-  { id: "bg_brown", name: "Кофейный", color: "#3b2a1a" },
-  { id: "bg_indigo", name: "Индиго", color: "#1a1a4e" },
-  { id: "bg_black", name: "Чёрный", color: "#0a0a0a" },
-];
-const DEFAULT_BG = { id: "default", name: "Обычный", color: "#0b3d24" };
 
 // Расположение мест вокруг овального стола в процентах (left, top).
 // Индекс 0 — всегда "вы" (внизу по центру), остальные распределены по кругу.
@@ -34,36 +17,19 @@ const SEAT_LAYOUTS = {
   ],
 };
 
-function loadOwnedBackgrounds() {
-  try {
-    return JSON.parse(localStorage.getItem("poker_owned_backgrounds") || "[]");
-  } catch (e) {
-    return [];
-  }
-}
-function saveOwnedBackgrounds(list) {
-  localStorage.setItem("poker_owned_backgrounds", JSON.stringify(list));
-}
-
 const state = {
-  name: localStorage.getItem("poker_name") || "Игрок",
-  bank: localStorage.getItem("poker_bank") !== null
-    ? parseInt(localStorage.getItem("poker_bank"), 10)
-    : 1000,
-  lastBonus: localStorage.getItem("poker_last_bonus")
-    ? parseInt(localStorage.getItem("poker_last_bonus"), 10)
-    : null,
-  ownedBackgrounds: loadOwnedBackgrounds(),          // массив id купленных пресетов
-  customBgUnlocked: localStorage.getItem("poker_custom_bg_unlocked") === "1",
-  customBgData: localStorage.getItem("poker_custom_bg_data") || null,
-  selectedBgId: "default",   // выбран в модалке настроек стола (для СЛЕДУЮЩЕГО созданного стола)
-  ws: null,
+  name: "Игрок",
+  bank: 0,
+  bonusLeft: 0,          // секунд до следующего ежедневного бонуса
+  bonusAmount: 1000,
+  session: null,         // постоянное соединение: банк, бонус
+  ws: null,              // соединение со столом
   connectedToTable: false,
   roomCode: null,
   lastState: null,
   myLastKnownChips: null,
-  pendingBuyIn: null,   // { type: 'create', background, min_buyin, small_blind, big_blind } или { type: 'join', code }
-  pendingConnectAmount: null,
+  pendingBuyIn: null,    // { type: 'create'|'join'|'server'|'random', ... }
+  pendingConnect: false,
   rebuyModalOpen: false,
   turnTimerHandle: null,
 };
@@ -78,42 +44,37 @@ function showScreen(id) {
   el("room-code-badge").classList.toggle("hidden", id !== "screen-table" || !state.roomCode);
 }
 
-function saveName() { localStorage.setItem("poker_name", state.name); }
-function saveBank() { localStorage.setItem("poker_bank", String(state.bank)); }
-function saveBonus() { localStorage.setItem("poker_last_bonus", String(state.lastBonus)); }
+// ---------------- Аккаунт и ежедневный бонус (всё считает сервер) ----------------
 
-// ---------------- Ежедневный бонус ----------------
+function onAccount(a) {
+  state.name = a.username;
+  state.bank = a.bank;
+  state.bonusLeft = a.bonus_left;
+  state.bonusAmount = a.bonus_amount;
+  el("player-name").textContent = a.username;
+  refreshBankDisplay();
+  updateBonusButton();
+}
 
 function updateBonusButton() {
   const btn = el("daily-bonus");
-  if (state.lastBonus === null) {
+  if (state.bonusLeft <= 0) {
     btn.disabled = false;
-    btn.textContent = "🎁 Получить 1000";
-    return;
-  }
-  const elapsed = Date.now() - state.lastBonus;
-  const remaining = BONUS_COOLDOWN_MS - elapsed;
-  if (remaining <= 0) {
-    btn.disabled = false;
-    btn.textContent = "🎁 Получить 1000";
+    btn.textContent = `🎁 Получить ${state.bonusAmount}`;
   } else {
     btn.disabled = true;
-    const h = Math.floor(remaining / 3600000);
-    const m = Math.floor((remaining % 3600000) / 60000);
-    const s = Math.floor((remaining % 60000) / 1000);
+    const left = Math.ceil(state.bonusLeft);
+    const h = Math.floor(left / 3600);
+    const m = Math.floor((left % 3600) / 60);
+    const s = left % 60;
     const pad = (n) => String(n).padStart(2, "0");
     btn.textContent = `Бонус через ${pad(h)}:${pad(m)}:${pad(s)}`;
   }
 }
 
 function claimBonus() {
-  if (state.lastBonus !== null && Date.now() - state.lastBonus < BONUS_COOLDOWN_MS) return;
-  state.bank += BONUS_AMOUNT;
-  state.lastBonus = Date.now();
-  saveBank();
-  saveBonus();
-  refreshBankDisplay();
-  updateBonusButton();
+  if (state.bonusLeft > 0) return;
+  if (state.session) state.session.send({ type: "claim_bonus" });
 }
 
 function refreshBankDisplay() {
@@ -124,35 +85,37 @@ function refreshBankDisplay() {
 // ---------------- Меню ----------------
 
 function initMenu() {
-  el("input-name").value = state.name;
-  refreshBankDisplay();
-
-  el("input-name").addEventListener("change", () => {
-    const v = el("input-name").value.trim();
-    state.name = v || "Игрок";
-    saveName();
+  if (!Account.requireLogin()) return;
+  state.session = Account.session({
+    onAccount,
+    onMessage: (msg) => {
+      if (msg.type === "bonus_result" && !msg.ok) alert("Бонус ещё не доступен.");
+    },
   });
+  refreshBankDisplay();
 
   el("daily-bonus").addEventListener("click", claimBonus);
   el("help-btn").addEventListener("click", () => el("help-modal").classList.remove("hidden"));
   el("help-close").addEventListener("click", () => el("help-modal").classList.add("hidden"));
+  el("btn-logout").addEventListener("click", () => Account.logout());
 
-  el("btn-create").addEventListener("click", () => {
+  const needChips = () => {
     if (state.bank <= 0) {
-      alert("В банке нет фишек. Дождитесь дневного бонуса (кнопка «🎁 Бонус» в углу).");
-      return;
+      alert("В банке нет фишек. Заберите ежедневный бонус (кнопка «🎁» в углу).");
+      return false;
     }
-    openTableSetupModal();
-  });
+    return true;
+  };
+
+  el("btn-server").addEventListener("click", () => { if (needChips()) openBuyInModal({ type: "server" }); });
+  el("btn-random").addEventListener("click", () => { if (needChips()) openBuyInModal({ type: "random" }); });
+  el("btn-create").addEventListener("click", () => { if (needChips()) openTableSetupModal(); });
   el("btn-join").addEventListener("click", () => el("join-box").classList.remove("hidden"));
   el("btn-join-cancel").addEventListener("click", () => el("join-box").classList.add("hidden"));
   el("btn-join-confirm").addEventListener("click", () => {
     const code = el("input-code").value.trim().toUpperCase();
     if (!code) return;
-    if (state.bank <= 0) {
-      alert("В банке нет фишек. Дождитесь дневного бонуса (кнопка «🎁 Бонус» в углу).");
-      return;
-    }
+    if (!needChips()) return;
     openBuyInModal({ type: "join", code });
   });
 
@@ -177,182 +140,25 @@ function initMenu() {
     leaveTable();
   });
 
-  el("btn-shop").addEventListener("click", () => openShopModal());
-  el("shop-close").addEventListener("click", () => el("shop-modal").classList.add("hidden"));
-  el("shop-buy-custom").addEventListener("click", buyCustomBgUnlock);
-  el("shop-custom-file").addEventListener("change", handleCustomBgUpload);
-
-  el("setup-open-shop").addEventListener("click", () => openShopModal());
   el("setup-confirm").addEventListener("click", confirmTableSetup);
   el("setup-cancel").addEventListener("click", () => el("table-setup-modal").classList.add("hidden"));
 
   updateBonusButton();
-  setInterval(updateBonusButton, 1000);
+  setInterval(() => {
+    if (state.bonusLeft > 0) state.bonusLeft -= 1;
+    updateBonusButton();
+  }, 1000);
   registerServiceWorker();
-}
-
-// ---------------- Магазин фонов ----------------
-
-function bgById(id) {
-  if (id === "default") return DEFAULT_BG;
-  if (id === "custom") return { id: "custom", name: "Свой фон" };
-  return BG_PRESETS.find((b) => b.id === id) || DEFAULT_BG;
-}
-
-function renderBgGrid(container, { selectable, forShop }) {
-  container.innerHTML = "";
-
-  const items = [DEFAULT_BG, ...BG_PRESETS];
-  items.forEach((bg) => {
-    const owned = bg.id === "default" || state.ownedBackgrounds.includes(bg.id);
-    const swatch = document.createElement("div");
-    swatch.className = "bg-swatch" + (owned ? "" : " locked") +
-      (selectable && state.selectedBgId === bg.id ? " selected" : "");
-    swatch.style.background = bg.color;
-    swatch.textContent = bg.name;
-
-    if (forShop) {
-      if (!owned) {
-        const tag = document.createElement("div");
-        tag.className = "shop-buy-tag";
-        tag.textContent = `Купить за ${BG_PRICE.toLocaleString("ru-RU")}`;
-        swatch.appendChild(tag);
-        swatch.addEventListener("click", () => buyBackground(bg));
-      } else {
-        const tag = document.createElement("div");
-        tag.className = "shop-buy-tag";
-        tag.textContent = "Открыт ✓";
-        swatch.appendChild(tag);
-      }
-    } else {
-      if (!owned) {
-        const lock = document.createElement("div");
-        lock.className = "lock-badge";
-        lock.textContent = "🔒";
-        swatch.appendChild(lock);
-      } else if (selectable) {
-        swatch.addEventListener("click", () => {
-          state.selectedBgId = bg.id;
-          renderBgGrid(container, { selectable, forShop });
-        });
-      }
-    }
-    container.appendChild(swatch);
-  });
-
-  // Свой фон — отдельная плитка, только если уже открыт и загружен
-  if (!forShop && state.customBgUnlocked && state.customBgData) {
-    const swatch = document.createElement("div");
-    swatch.className = "bg-swatch" + (selectable && state.selectedBgId === "custom" ? " selected" : "");
-    swatch.style.backgroundImage = `url(${state.customBgData})`;
-    swatch.style.backgroundSize = "cover";
-    swatch.style.backgroundPosition = "center";
-    swatch.textContent = "Свой фон";
-    if (selectable) {
-      swatch.addEventListener("click", () => {
-        state.selectedBgId = "custom";
-        renderBgGrid(container, { selectable, forShop });
-      });
-    }
-    container.appendChild(swatch);
-  }
-}
-
-function openShopModal() {
-  renderBgGrid(el("shop-grid"), { selectable: false, forShop: true });
-  el("shop-custom-locked").classList.toggle("hidden", state.customBgUnlocked);
-  el("shop-custom-unlocked").classList.toggle("hidden", !state.customBgUnlocked);
-  el("shop-modal").classList.remove("hidden");
-}
-
-function buyBackground(bg) {
-  if (state.ownedBackgrounds.includes(bg.id)) return;
-  if (state.bank < BG_PRICE) {
-    alert(`Не хватает фишек. Нужно ${BG_PRICE.toLocaleString("ru-RU")}, в банке ${state.bank}.`);
-    return;
-  }
-  if (!confirm(`Купить фон «${bg.name}» за ${BG_PRICE.toLocaleString("ru-RU")} фишек?`)) return;
-  state.bank -= BG_PRICE;
-  saveBank();
-  refreshBankDisplay();
-  state.ownedBackgrounds.push(bg.id);
-  saveOwnedBackgrounds(state.ownedBackgrounds);
-  renderBgGrid(el("shop-grid"), { selectable: false, forShop: true });
-}
-
-function buyCustomBgUnlock() {
-  if (state.bank < CUSTOM_BG_PRICE) {
-    alert(`Не хватает фишек. Нужно ${CUSTOM_BG_PRICE.toLocaleString("ru-RU")}, в банке ${state.bank}.`);
-    return;
-  }
-  if (!confirm(`Открыть загрузку своего фона за ${CUSTOM_BG_PRICE.toLocaleString("ru-RU")} фишек?`)) return;
-  state.bank -= CUSTOM_BG_PRICE;
-  saveBank();
-  refreshBankDisplay();
-  state.customBgUnlocked = true;
-  localStorage.setItem("poker_custom_bg_unlocked", "1");
-  el("shop-custom-locked").classList.add("hidden");
-  el("shop-custom-unlocked").classList.remove("hidden");
-}
-
-function handleCustomBgUpload(ev) {
-  const file = ev.target.files && ev.target.files[0];
-  if (!file) return;
-  const img = new Image();
-  const reader = new FileReader();
-  reader.onload = () => {
-    img.onload = () => {
-      // Сжимаем и уменьшаем картинку через canvas, чтобы не забить localStorage
-      const maxW = 1280;
-      const scale = Math.min(1, maxW / img.width);
-      const canvas = document.createElement("canvas");
-      canvas.width = Math.round(img.width * scale);
-      canvas.height = Math.round(img.height * scale);
-      const ctx = canvas.getContext("2d");
-      ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
-      const dataUrl = canvas.toDataURL("image/jpeg", 0.7);
-      try {
-        localStorage.setItem("poker_custom_bg_data", dataUrl);
-        state.customBgData = dataUrl;
-        alert("Фон загружен и сохранён.");
-      } catch (e) {
-        alert("Не удалось сохранить изображение — возможно, оно слишком большое. Попробуйте другое, поменьше.");
-      }
-    };
-    img.src = reader.result;
-  };
-  reader.readAsDataURL(file);
-}
-
-function applyTableBackground(bg) {
-  if (!bg) { resetBackground(); return; }
-  if (bg.type === "custom" && bg.dataUrl) {
-    document.body.style.backgroundImage = `url(${bg.dataUrl})`;
-    document.body.style.backgroundSize = "cover";
-    document.body.style.backgroundPosition = "center";
-    document.body.style.backgroundColor = "";
-  } else if (bg.type === "solid" && bg.color) {
-    document.body.style.backgroundImage = "";
-    document.body.style.backgroundColor = bg.color;
-  } else {
-    resetBackground();
-  }
-}
-
-function resetBackground() {
-  document.body.style.backgroundImage = "";
-  document.body.style.backgroundColor = "";
 }
 
 // ---------------- Настройки стола (только при создании) ----------------
 
 function openTableSetupModal() {
-  state.selectedBgId = "default";
-  renderBgGrid(el("setup-bg-grid"), { selectable: true, forShop: false });
   el("setup-min-buyin").value = 0;
   el("setup-max-buyin").value = 0;
   el("setup-small-blind").value = 10;
   el("setup-big-blind").value = 20;
+  el("setup-private").checked = true;
   el("table-setup-modal").classList.remove("hidden");
 }
 
@@ -374,22 +180,14 @@ function confirmTableSetup() {
     return;
   }
 
-  let background = null;
-  if (state.selectedBgId === "custom" && state.customBgData) {
-    background = { type: "custom", dataUrl: state.customBgData };
-  } else if (state.selectedBgId !== "default") {
-    const bg = bgById(state.selectedBgId);
-    background = { type: "solid", color: bg.color };
-  }
-
   el("table-setup-modal").classList.add("hidden");
   openBuyInModal({
     type: "create",
-    background,
     min_buyin: minBuyin,
     max_buyin: maxBuyinRaw,
     small_blind: smallBlind,
     big_blind: bigBlind,
+    private: el("setup-private").checked,
   });
 }
 
@@ -399,12 +197,15 @@ function openBuyInModal(pending) {
   state.pendingBuyIn = pending;
   el("buyin-bank-max").textContent = state.bank;
 
-  const minAmount = pending.type === "create" ? Math.max(1, pending.min_buyin || 0) : 1;
+  // Серверный стол требует вход от 400 (20 больших блайндов); у случайного стола
+  // минимум зависит от того, какой стол выпадет — сервер подскажет, если не хватит.
+  const minAmount = pending.type === "create" ? Math.max(1, pending.min_buyin || 0)
+    : pending.type === "server" ? Math.min(400, state.bank) : 1;
   let maxAmount = state.bank;
   if (pending.type === "create" && pending.max_buyin) {
     maxAmount = Math.min(pending.max_buyin, state.bank);
   }
-  if (maxAmount < minAmount) maxAmount = minAmount; // банк меньше минимума — слайдер выше не даст ошибиться
+  if (maxAmount < minAmount) maxAmount = minAmount;
 
   const slider = el("buyin-slider");
   slider.min = minAmount;
@@ -431,10 +232,8 @@ function confirmBuyIn() {
     alert(`Введите сумму от ${minAmount} до ${Math.min(maxAmount, state.bank)}`);
     return;
   }
-  state.bank -= amount;
-  saveBank();
-  refreshBankDisplay();
-  state.pendingConnectAmount = amount;
+  // Фишки спишет сервер при успешной посадке за стол — банк обновится сам.
+  state.pendingConnect = true;
   el("buyin-modal").classList.add("hidden");
   el("join-box").classList.add("hidden");
 
@@ -445,16 +244,19 @@ function confirmBuyIn() {
   if (pending.type === "create") {
     connect(() => sendMsg({
       type: "create_room",
-      name: state.name,
       chips: amount,
-      background: pending.background || null,
       min_buyin: pending.min_buyin || 0,
       max_buyin: pending.max_buyin || 0,
       small_blind: pending.small_blind || 10,
       big_blind: pending.big_blind || 20,
+      private: pending.private !== false,
     }));
+  } else if (pending.type === "server") {
+    connect(() => sendMsg({ type: "join_server", chips: amount }));
+  } else if (pending.type === "random") {
+    connect(() => sendMsg({ type: "join_random", chips: amount }));
   } else {
-    connect(() => sendMsg({ type: "join_room", code: pending.code, name: state.name, chips: amount }));
+    connect(() => sendMsg({ type: "join_room", code: pending.code, chips: amount }));
   }
   state.pendingBuyIn = null;
 }
@@ -468,7 +270,7 @@ function showRebuyModal() {
   if (state.rebuyModalOpen) return;
   state.rebuyModalOpen = true;
   if (state.bank <= 0) {
-    alert("Фишки за столом и в банке закончились. Дождитесь дневного бонуса — возвращаемся в меню.");
+    alert("Фишки за столом и в банке закончились. Заберите ежедневный бонус — возвращаемся в меню.");
     state.rebuyModalOpen = false;
     leaveTable();
     return;
@@ -491,10 +293,7 @@ function confirmRebuy() {
     alert(`Введите сумму от 1 до ${state.bank}`);
     return;
   }
-  state.bank -= amount;
-  saveBank();
-  refreshBankDisplay();
-  sendMsg({ type: "rebuy", amount });
+  sendMsg({ type: "rebuy", amount });   // сервер спишет фишки с банка
   hideRebuyModal();
 }
 
@@ -512,7 +311,7 @@ function maybeShowRebuy(me) {
   showRebuyModal();
 }
 
-// ---------------- Подключение ----------------
+// ---------------- Подключение к столу ----------------
 
 function wsUrl() {
   const proto = location.protocol === "https:" ? "wss:" : "ws:";
@@ -522,7 +321,10 @@ function wsUrl() {
 function connect(onOpen) {
   const ws = new WebSocket(wsUrl());
   state.ws = ws;
-  ws.addEventListener("open", () => onOpen && onOpen());
+  ws.addEventListener("open", () => {
+    ws.send(JSON.stringify({ type: "auth_token", token: Account.token() }));
+    onOpen && onOpen();
+  });
   ws.addEventListener("message", (ev) => {
     try {
       handleMsg(JSON.parse(ev.data));
@@ -532,7 +334,7 @@ function connect(onOpen) {
   });
   ws.addEventListener("close", () => {
     if (state.connectedToTable) {
-      returnToMenu(true);
+      returnToMenu();
       alert("Связь со столом прервана.");
     }
   });
@@ -547,60 +349,49 @@ function sendMsg(obj) {
   }
 }
 
+// Остаток стека сервер сам вернёт в банк при выходе из-за стола.
 function leaveTable() {
-  if (state.myLastKnownChips !== null) {
-    state.bank += state.myLastKnownChips;
-    saveBank();
-  }
   sendMsg({ type: "leave" });
   if (state.ws) {
     state.ws.close();
     state.ws = null;
   }
-  returnToMenu(true); // фишки уже начислены на предыдущей строке — второй раз не начислять
+  returnToMenu();
 }
 
-function returnToMenu(alreadyCredited) {
-  if (!alreadyCredited && state.myLastKnownChips !== null) {
-    state.bank += state.myLastKnownChips;
-    saveBank();
-  }
+function returnToMenu() {
   state.connectedToTable = false;
+  state.pendingConnect = false;
   state.lastState = null;
   state.myLastKnownChips = null;
   state.roomCode = null;
   hideRebuyModal();
   stopTurnTimer();
-  resetBackground();
   refreshBankDisplay();
   showScreen("screen-menu");
+  if (state.session) state.session.send({ type: "account_get" });
 }
 
 // ---------------- Обработка сообщений сервера ----------------
 
 function handleMsg(msg) {
-  if (msg.type === "room_created") {
+  if (msg.type === "room_created" || msg.type === "joined") {
     state.roomCode = msg.code;
-    state.pendingConnectAmount = null;
-    el("room-code-badge").textContent = `Код: ${msg.code}`;
+    state.pendingConnect = false;
+    const label = msg.code.startsWith("SRV") ? "Серверный стол" : `Код: ${msg.code}`;
+    el("room-code-badge").textContent = label;
     el("room-code-badge").classList.remove("hidden");
-    applyTableBackground(msg.background);
-  } else if (msg.type === "joined") {
-    state.roomCode = msg.code;
-    state.pendingConnectAmount = null;
-    el("room-code-badge").textContent = `Код: ${msg.code}`;
-    el("room-code-badge").classList.remove("hidden");
-    applyTableBackground(msg.background);
+  } else if (msg.type === "auth_required" || msg.type === "auth_error") {
+    Account.setToken(null);
+    Account.toLogin();
   } else if (msg.type === "error") {
     alert(msg.message);
-    if (!state.lastState && state.pendingConnectAmount) {
-      // Не удалось сесть за стол (например, не хватает до минимального входа) —
-      // возвращаем внесённые фишки в банк и откатываемся в меню.
-      state.bank += state.pendingConnectAmount;
-      state.pendingConnectAmount = null;
-      saveBank();
+    if (!state.lastState && state.pendingConnect) {
+      // Не удалось сесть за стол (не хватает до минимального входа и т. п.) —
+      // сервер ничего не списывал, просто возвращаемся в меню.
+      state.pendingConnect = false;
       if (state.ws) { state.ws.close(); state.ws = null; }
-      returnToMenu(true);
+      returnToMenu();
     }
   } else if (msg.type === "state") {
     renderState(msg.state);
@@ -838,9 +629,7 @@ function setupAdminTrigger() {
   el("admin-set-bank").addEventListener("click", () => {
     const amount = parseInt(el("admin-bank-amount").value || "0", 10);
     if (isNaN(amount) || amount < 0) return;
-    state.bank = amount;
-    saveBank();
-    refreshBankDisplay();
+    if (state.session) state.session.send({ type: "admin_set_bank", amount });
   });
   el("admin-set-table").addEventListener("click", () => {
     const amount = parseInt(el("admin-table-amount").value || "0", 10);
@@ -878,17 +667,3 @@ function openAdminPanel() {
 }
 
 document.addEventListener("DOMContentLoaded", setupAdminTrigger);
-
-// Подстраховка: если вкладку/приложение закрыли прямо во время игры, не
-// нажав «Покинуть стол», всё равно сохраняем последний известный стек в банк.
-let unloadCreditDone = false;
-function creditOnUnload() {
-  if (unloadCreditDone) return;
-  if (state.connectedToTable && state.myLastKnownChips !== null) {
-    unloadCreditDone = true;
-    state.bank += state.myLastKnownChips;
-    saveBank();
-  }
-}
-window.addEventListener("pagehide", creditOnUnload);
-window.addEventListener("beforeunload", creditOnUnload);

@@ -41,6 +41,9 @@
     display:grid;place-items:center;font-size:20px;font-weight:800;box-shadow:0 2px 5px rgba(0,0,0,.5)}
   .cards-art b:nth-child(1){left:2px;top:12px;transform:rotate(-12deg)}
   .cards-art b:nth-child(2){left:22px;top:6px;transform:rotate(8deg);color:var(--red)}
+  .slot-art{display:flex;gap:3px}
+  .slot-art b{width:24px;height:52px;border-radius:5px;background:#fff;color:#d11f2c;display:grid;place-items:center;
+    font-family:var(--serif);font-size:26px;box-shadow:0 0 0 2px var(--brass2)}
   .note{color:var(--muted);font-size:12px;text-align:center;margin-top:18px;line-height:1.5}
 </style>
 </head>
@@ -52,14 +55,17 @@
   </div>
 
   <div class="me">
-    <input id="name" maxlength="16" aria-label="Ваше имя">
-    <div class="balance">🪙 <span id="bal">0</span></div>
+    <div><div id="uname" style="font-weight:700">…</div><button class="btn small" id="logout" style="margin-top:4px">Выйти</button></div>
+    <div style="text-align:right">
+      <div class="balance">🪙 <span id="bal">0</span></div>
+      <button class="btn small gold" id="bonus" style="margin-top:4px" disabled>🎁 Бонус</button>
+    </div>
   </div>
 
   <div class="games">
     <a class="game" href="/index.html">
       <div class="art"><div class="cards-art"><b>A♠</b><b>K♥</b></div></div>
-      <div><h2>Покер</h2><p>Техасский холдем по коду комнаты, с друзьями.</p></div>
+      <div><h2>Покер</h2><p>Техасский холдем: серверный стол, случайный стол или комната по коду.</p></div>
     </a>
 
     <a class="game" href="/roulette.html">
@@ -81,37 +87,52 @@
       <div><h2>Блэкджек</h2><p>До 5 игроков против дилера. Блэкджек платит 3 к 2.</p>
         <div class="live" id="live-blackjack"></div></div>
     </a>
+
+    <a class="game" href="/slots.html">
+      <div class="art"><div class="slot-art"><b>7</b><b>7</b><b>7</b></div></div>
+      <div><h2>Автомат</h2><p>Потяните ручку: три символа, чем реже — тем больше награда.</p>
+        <div class="live" id="live-slots"></div></div>
+    </a>
+
+    <a class="game" href="/leaderboard.html">
+      <div class="art" style="font-size:54px">🏆</div>
+      <div><h2>Топ игроков</h2><p>Рейтинг по количеству фишек.</p></div>
+    </a>
   </div>
 
-  <p class="note">Игра только на виртуальные фишки.<br>Если фишки закончились — на любом столе появится кнопка «+5000».</p>
+  <p class="note">Игра только на виртуальные фишки.<br>Если фишки закончились — забирайте ежедневный бонус 🎁.</p>
 </div>
 
-<script src="/casino.js"></script>
+<script src="/account.js"></script>
 <script>
-  const nameEl = document.getElementById('name');
-  nameEl.value = Casino.name();
-  nameEl.addEventListener('change', () => { Casino.setName(nameEl.value); nameEl.value = Casino.name(); });
-  document.getElementById('bal').textContent = Casino.fmt(Casino.chips());
-
+if (Account.requireLogin()) {
+  const $ = id => document.getElementById(id);
+  let bonusLeft = 0, bonusAmount = 1000, api;
   function plural(n, a, b, c) { n = Math.abs(n) % 100; const m = n % 10; return n > 10 && n < 20 ? c : m > 1 && m < 5 ? b : m === 1 ? a : c; }
-  let ws;
-  function connect() {
-    ws = new WebSocket(Casino.wsUrl());
-    ws.onopen = poll;
-    ws.onmessage = e => {
-      let m; try { m = JSON.parse(e.data); } catch (_) { return; }
+  function paintBonus() {
+    const btn = $('bonus');
+    if (bonusLeft <= 0) { btn.disabled = false; btn.textContent = '🎁 Получить ' + Account.fmt(bonusAmount); return; }
+    btn.disabled = true;
+    const h = Math.floor(bonusLeft / 3600), m = Math.floor(bonusLeft % 3600 / 60), s = Math.floor(bonusLeft % 60), p = n => String(n).padStart(2, '0');
+    btn.textContent = `Бонус через ${p(h)}:${p(m)}:${p(s)}`;
+  }
+  setInterval(() => { if (bonusLeft > 0) { bonusLeft -= 1; paintBonus(); } }, 1000);
+  $('bonus').onclick = () => api && api.send({ type: 'claim_bonus' });
+  $('logout').onclick = () => Account.logout();
+
+  api = Account.session({
+    onAccount(a) { $('uname').textContent = a.username; $('bal').textContent = Account.fmt(a.bank); bonusLeft = a.bonus_left; bonusAmount = a.bonus_amount; paintBonus(); },
+    onReady(s) { s.send({ type: 'casino_stats' }); setInterval(() => s.send({ type: 'casino_stats' }), 4000); },
+    onMessage(m) {
       if (m.type !== 'casino_stats') return;
       for (const g in m.stats) {
-        const el = document.getElementById('live-' + g); if (!el) continue;
+        const el = $('live-' + g); if (!el) continue;
         const s = m.stats[g];
-        el.textContent = s.players ? `Сейчас играют: ${s.players} · ${s.tables} ${plural(s.tables, 'стол', 'стола', 'столов')}` : 'Свободно, заходите первым';
+        el.textContent = s.players ? `Сейчас играют: ${s.players}` + (g === 'slots' ? '' : ` · ${s.tables} ${plural(s.tables, 'стол', 'стола', 'столов')}`) : 'Свободно, заходите первым';
       }
-    };
-    ws.onclose = () => setTimeout(connect, 3000);
-  }
-  function poll() { if (ws.readyState === 1) ws.send(JSON.stringify({ type: 'casino_stats' })); }
-  setInterval(poll, 4000);
-  connect();
+    }
+  });
+}
 </script>
 </body>
 </html>

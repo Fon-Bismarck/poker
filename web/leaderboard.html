@@ -1,0 +1,51 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>Топ игроков</title>
+<link rel="stylesheet" href="/casino.css">
+<style>
+  .row{display:grid;grid-template-columns:44px 1fr auto;gap:8px;align-items:center;padding:10px 12px;border-radius:12px;
+    background:var(--smoke);border:1px solid rgba(255,255,255,.07);margin-bottom:6px}
+  .row.me{border-color:var(--brass);box-shadow:0 0 0 1px var(--brass)}
+  .rank{font-family:var(--serif);font-weight:700;font-size:20px;text-align:center;color:var(--muted)}
+  .r1 .rank{color:#ffd45a} .r2 .rank{color:#d7dde2} .r3 .rank{color:#d9965b}
+  .nm{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .ch{font-weight:700;color:var(--win)}
+  .mine{text-align:center;margin:10px 0;color:var(--muted)}
+  .mine b{color:var(--win)}
+</style>
+</head>
+<body>
+<div class="topbar">
+  <a class="btn small" href="/menu.html" style="text-decoration:none">← Меню</a>
+  <div class="title">Топ игроков<small id="sub">по количеству фишек</small></div>
+</div>
+<div class="wrap">
+  <div class="mine" id="mine"></div>
+  <div id="list"></div>
+</div>
+<script src="/account.js"></script>
+<script>
+if (Account.requireLogin()) {
+  const list = document.getElementById('list');
+  const esc = s => String(s).replace(/[<>&"]/g, '');
+  function ask(api) { api.send({ type: 'leaderboard' }); }
+  Account.session({
+    onReady: api => { ask(api); setInterval(() => ask(api), 10000); },
+    onMessage: m => {
+      if (m.type !== 'leaderboard') return;
+      document.getElementById('sub').textContent = `игроков: ${m.total}`;
+      document.getElementById('mine').innerHTML = m.you ? `Ваше место: <b>#${m.you.rank}</b> · ${Account.fmt(m.you.chips)} фишек` : '';
+      const me = Account.info && Account.info.username;
+      list.innerHTML = m.rows.map(r => `<div class="row r${r.rank <= 3 ? r.rank : 0} ${r.username === me ? 'me' : ''}">
+        <div class="rank">${r.rank <= 3 ? ['🥇','🥈','🥉'][r.rank - 1] : r.rank}</div>
+        <div class="nm">${esc(r.username)}</div><div class="ch">${Account.fmt(r.chips)}</div></div>`).join('')
+        || '<p class="mine">Пока никого нет</p>';
+    }
+  });
+}
+</script>
+</body>
+</html>

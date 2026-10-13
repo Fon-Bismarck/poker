@@ -2,7 +2,7 @@
 // Игровые данные всегда идут напрямую через WebSocket, не через кэш.
 
 const CACHE_NAME = "poker-static-v2";
-const STATIC_FILES = ["index.html", "menu.html", "style.css", "app.js", "casino.css", "casino.js", "manifest.webmanifest"];
+const STATIC_FILES = ["index.html", "menu.html", "login.html", "style.css", "app.js", "account.js", "casino.css", "casino.js", "manifest.webmanifest"];
 
 self.addEventListener("install", (event) => {
   event.waitUntil(

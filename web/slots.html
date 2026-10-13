@@ -1,0 +1,164 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>Автомат</title>
+<link rel="stylesheet" href="/casino.css">
+<style>
+  .cab{position:relative;margin:10px auto 0;max-width:420px;padding:16px 64px 16px 16px;border-radius:24px;
+    background:linear-gradient(160deg,#7d1f2a,#4a1019);border:2px solid var(--brass);
+    box-shadow:0 10px 30px rgba(0,0,0,.5),inset 0 0 0 4px rgba(0,0,0,.25)}
+  .marquee{font-family:var(--serif);text-align:center;font-size:22px;letter-spacing:3px;color:var(--win);margin-bottom:10px;text-shadow:0 0 12px rgba(242,211,107,.6)}
+  .reels{display:flex;gap:8px;background:#0b0b0b;padding:10px;border-radius:14px;border:3px solid #2a2a2a;box-shadow:inset 0 0 14px #000}
+  .reel{flex:1;height:96px;overflow:hidden;border-radius:8px;background:linear-gradient(180deg,#d8d2c4,#fff 20%,#fff 80%,#cfc8b8);position:relative}
+  .reel::after{content:"";position:absolute;inset:0;background:linear-gradient(180deg,rgba(0,0,0,.35),transparent 28%,transparent 72%,rgba(0,0,0,.35));pointer-events:none}
+  .strip{will-change:transform}
+  .sym{height:96px;display:grid;place-items:center;font-size:56px;line-height:1}
+  .sym.seven{font-family:var(--serif);font-weight:700;color:#d11f2c;font-size:64px;text-shadow:2px 2px 0 #7d1f2a}
+  .line{position:absolute;left:12px;right:60px;top:50%;height:0;border-top:2px dashed rgba(242,211,107,.45);pointer-events:none}
+  .reels.win{animation:glow .5s 4}
+  @keyframes glow{50%{box-shadow:0 0 0 4px var(--win),0 0 26px var(--win),inset 0 0 14px #000}}
+  /* рычаг */
+  .lever{position:absolute;right:12px;top:30px;width:40px;height:150px;touch-action:none;user-select:none;cursor:grab}
+  .lever .rod{position:absolute;left:17px;top:30px;width:6px;height:110px;background:linear-gradient(90deg,#9aa3ab,#e6ebef,#8a939b);border-radius:3px;
+    transform-origin:50% 100%;transition:transform .12s}
+  .lever .knob{position:absolute;left:50%;top:-18px;width:34px;height:34px;margin-left:-17px;border-radius:50%;
+    background:radial-gradient(circle at 35% 30%,#ff8a8a,#c01f2c 60%,#7d1019);box-shadow:0 3px 6px rgba(0,0,0,.6)}
+  .lever .base{position:absolute;left:5px;bottom:0;width:30px;height:26px;border-radius:8px;background:#2a2a2a;border:1px solid var(--brass2)}
+  .lever.pulled .rod{transform:scaleY(.35)}
+  .lever.disabled{opacity:.5}
+  .hintpull{text-align:center;color:var(--muted);font-size:12px;margin:8px 0 0}
+  .pay{margin-top:14px;background:var(--smoke);border:1px solid rgba(255,255,255,.08);border-radius:14px;padding:10px 12px;font-size:13px}
+  .pay h3{margin:0 0 6px;font-family:var(--serif);font-size:15px;color:var(--brass);font-weight:500}
+  .pr{display:flex;justify-content:space-between;padding:3px 0;border-bottom:1px solid rgba(255,255,255,.05)}
+  .pr:last-child{border:0}
+  .pr b{color:var(--win)}
+  .hist{display:flex;gap:6px;justify-content:center;flex-wrap:wrap;margin-top:10px;font-size:13px}
+  .hist span{background:var(--smoke);border-radius:8px;padding:3px 8px;border:1px solid rgba(255,255,255,.08)}
+  .hist .w{color:var(--win);border-color:var(--brass2)}
+  .spinbtn{display:block;margin:12px auto 0;padding:14px 40px;font-size:18px}
+</style>
+</head>
+<body>
+<div class="topbar">
+  <button class="btn small" id="back">← Меню</button>
+  <div class="title">Автомат<small id="tableInfo">Ищем автомат…</small></div>
+  <div class="balance">🪙 <span id="bal">0</span></div>
+</div>
+
+<div class="wrap">
+  <div class="cab">
+    <div class="marquee">★ ДЖЕКПОТ ★</div>
+    <div class="reels" id="reels"></div>
+    <div class="lever" id="lever"><div class="rod"></div><div class="knob"></div><div class="base"></div></div>
+  </div>
+  <p class="hintpull">Потяните рычаг вниз или нажмите «Крутить»</p>
+  <div class="banner" id="banner"></div>
+
+  <div class="chips" id="chips"></div>
+  <button class="btn gold spinbtn" id="spin">Крутить</button>
+
+  <div class="hist" id="hist"></div>
+
+  <div class="pay"><h3>Таблица выплат (ставка × множитель)</h3><div id="pay"></div></div>
+</div>
+
+<script src="/account.js"></script>
+<script src="/casino.js"></script>
+<script>
+const ICON = { cherry: '🍒', lemon: '🍋', bell: '🔔', star: '⭐', diamond: '💎', seven: '7' };
+const NAME = { cherry: 'Вишня', lemon: 'Лимон', bell: 'Колокольчик', star: 'Звезда', diamond: 'Бриллиант', seven: 'Семёрка' };
+const CELL = 96;
+let state = null, bet = 100, animRound = 0, shownRound = 0, spinning = false;
+const SYMS = ['cherry', 'lemon', 'bell', 'star', 'diamond', 'seven'];
+
+function symEl(k) { const d = document.createElement('div'); d.className = 'sym' + (k === 'seven' ? ' seven' : ''); d.textContent = ICON[k]; return d; }
+const reelsBox = document.getElementById('reels'), reels = [];
+for (let i = 0; i < 3; i++) {
+  const r = document.createElement('div'); r.className = 'reel';
+  const strip = document.createElement('div'); strip.className = 'strip';
+  strip.appendChild(symEl(SYMS[(i * 2) % 6])); r.appendChild(strip); reelsBox.appendChild(r); reels.push(strip);
+}
+const line = document.createElement('div'); line.className = 'line'; document.querySelector('.cab').appendChild(line);
+
+function spinReels(final, totalMs) {
+  reelsBox.classList.remove('win');
+  final.forEach((sym, i) => {
+    const strip = reels[i], n = 16 + i * 5;
+    strip.getAnimations().forEach(a => a.cancel());
+    strip.innerHTML = '';
+    for (let k = 0; k < n; k++) strip.appendChild(symEl(SYMS[Math.floor(Math.random() * 6)]));
+    strip.appendChild(symEl(sym));
+    const dur = Math.max(900, totalMs - 500 + i * 220);
+    const anim = strip.animate([{ transform: 'translateY(0)' }, { transform: `translateY(${-n * CELL}px)` }],
+      { duration: dur, easing: 'cubic-bezier(.12,.6,.18,1)', fill: 'forwards' });
+    anim.onfinish = () => { strip.getAnimations().forEach(a => a.cancel()); strip.innerHTML = ''; strip.appendChild(symEl(sym)); };
+  });
+}
+function showStatic(final) { final.forEach((s, i) => { reels[i].innerHTML = ''; reels[i].appendChild(symEl(s)); }); }
+
+/* ---------- рычаг ---------- */
+const lever = document.getElementById('lever');
+function pull() {
+  if (spinning || !state) return;
+  api.send({ type: 'casino_spin', amount: bet });
+  lever.classList.add('pulled'); setTimeout(() => lever.classList.remove('pulled'), 400);
+}
+let dragY = null;
+lever.addEventListener('pointerdown', e => { dragY = e.clientY; lever.setPointerCapture(e.pointerId); });
+lever.addEventListener('pointermove', e => {
+  if (dragY === null) return;
+  if (e.clientY - dragY > 40) { dragY = null; pull(); }
+});
+lever.addEventListener('pointerup', () => { if (dragY !== null) { dragY = null; pull(); } }); // простое нажатие тоже работает
+document.getElementById('spin').onclick = pull;
+
+/* ---------- ставки ---------- */
+const chipsEl = document.getElementById('chips');
+[10, 50, 100, 500, 1000, 5000].forEach(v => {
+  const b = document.createElement('button'); b.className = 'chip' + (v === bet ? ' sel' : ''); b.dataset.v = v; b.textContent = v;
+  b.onclick = () => { bet = v; chipsEl.querySelectorAll('.chip').forEach(x => x.classList.toggle('sel', x === b)); };
+  chipsEl.appendChild(b);
+});
+document.getElementById('back').onclick = () => api.leave(() => location.href = '/menu.html');
+
+/* ---------- таблица выплат ---------- */
+function renderPay(p) {
+  document.getElementById('pay').innerHTML = p.syms.slice().reverse().map(k =>
+    `<div class="pr"><span>${ICON[k]}${ICON[k]}${ICON[k]} ${NAME[k]}</span><b>×${p.x3[k]}</b></div>`).join('') +
+    '<div class="pr" style="margin-top:4px"><span style="color:var(--muted)">Два одинаковых</span><span></span></div>' +
+    p.syms.slice().reverse().map(k => `<div class="pr"><span>${ICON[k]}${ICON[k]}</span><b>×${p.x2[k]}</b></div>`).join('');
+}
+
+/* ---------- состояние ---------- */
+function render(s) {
+  const first = !state;
+  state = s;
+  document.getElementById('tableInfo').textContent = 'Личный автомат · макс. ставка ' + Account.fmt(s.max_bet);
+  document.getElementById('bal').textContent = Account.fmt(s.you.chips);
+  if (first) renderPay(s.paytable);
+  spinning = s.phase === 'spin';
+  lever.classList.toggle('disabled', spinning);
+  document.getElementById('spin').disabled = spinning;
+
+  if (s.phase === 'spin' && animRound !== s.round_no) {
+    animRound = s.round_no;
+    document.getElementById('banner').textContent = '';
+    spinReels(s.reels, s.phase_total * 1000);
+  } else if (first && s.reels) { animRound = s.round_no; showStatic(s.reels); }
+
+  if (s.phase === 'idle' && s.history.length && animRound === s.round_no && shownRound !== s.round_no) {
+    shownRound = s.round_no;
+    const last = s.history[s.history.length - 1], b = document.getElementById('banner');
+    if (last.win > 0) { b.className = 'banner win'; b.textContent = `Выплата +${Account.fmt(last.win)}`; if (last.win >= last.bet * 5) reelsBox.classList.add('win'); }
+    else { b.className = 'banner lose'; b.textContent = 'Не повезло'; }
+  }
+  document.getElementById('hist').innerHTML = s.history.slice().reverse().map(h =>
+    `<span class="${h.win > 0 ? 'w' : ''}">${h.reels.map(k => ICON[k]).join('')} ${h.win > 0 ? '+' + Casino.short(h.win) : '0'}</span>`).join('');
+}
+const api = Casino.open({ game: 'slots', onState: render });
+Account.session({ onAccount() {} });  // держим банк актуальным для других вкладок
+</script>
+</body>
+</html>
