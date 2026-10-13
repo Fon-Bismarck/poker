@@ -6,13 +6,14 @@ casino.py — казино-игры поверх вашего сервера п�
   roulette  — европейская рулетка (круглое колесо, 37 ячеек)
   axes      — «Три топора»: квадратная доска 4x3, три топора летят в три разные клетки
   blackjack — блэкджек до 5 игроков за столом против дилера
+  slots     — игровой автомат «ручка»: три символа, награда зависит от их ценности
 
 Подбор стола: игрок заходит в игру, сервер сам выбирает стол с НАИМЕНЬШИМ числом
 игроков среди незаполненных. Если все столы полны — создаётся новый. Благодаря
 этому столы заполняются равномерно (3 игрока -> 3 стола по одному, и т. д. до
 заполнения). Пустые лишние столы удаляются.
 
-Фишки хранятся на клиенте (как и в покере) — это игровые фишки без денег.
+Фишки берутся прямо из банка аккаунта (accounts.py) — это игровые фишки без денег.
 """
 import math
 import secrets
@@ -24,8 +25,6 @@ from itertools import combinations
 RNG = secrets.SystemRandom()
 TICK = 0.2
 MAX_SPOT_BET = 100000
-TOPUP_AMOUNT = 5000
-TOPUP_BELOW = 100
 
 
 def clamp_int(v, lo, hi, default=0):
@@ -44,10 +43,10 @@ def safe_send(handler, obj):
 
 
 class Player:
-    def __init__(self, pid, name, chips, handler, seat):
+    def __init__(self, pid, account, handler, seat):
         self.pid = pid
-        self.name = name
-        self.chips = chips
+        self.account = account
+        self.name = account.username
         self.handler = handler
         self.seat = seat
         # рулетка / топоры
@@ -62,6 +61,15 @@ class Player:
         self.status = "idle"   # idle | waiting | stand | bust | blackjack
         self.result = None     # win | lose | push | blackjack | bust
         self.in_round = False
+
+    @property
+    def chips(self):
+        """Фишки игрока — это банк его аккаунта (всегда актуальные и сохраняемые)."""
+        return self.account.bank
+
+    @chips.setter
+    def chips(self, value):
+        self.account.set_bank(value)
 
 
 class BaseTable:
@@ -95,11 +103,11 @@ class BaseTable:
                 return i
         return None
 
-    def add_player(self, pid, name, chips, handler):
+    def add_player(self, pid, account, handler):
         seat = self.free_seat()
         if seat is None:
             return None
-        p = Player(pid, name, chips, handler, seat)
+        p = Player(pid, account, handler, seat)
         self.players[pid] = p
         return p
 
@@ -113,6 +121,10 @@ class BaseTable:
     # ---- переопределяется ----
     def refundable(self, p):
         return p.chips
+
+    def at_stake(self, p):
+        """Фишки игрока, которые сейчас лежат на кону (для таблицы лидеров)."""
+        return 0
 
     def remove_player(self, pid):
         p = self.players.get(pid)
@@ -168,6 +180,13 @@ class BetTable(BaseTable):
         if self.phase == "spin":
             return p.chips + p.pending   # итог уже определён, зачислим сразу
         return p.chips
+
+    def at_stake(self, p):
+        if self.phase == "betting":
+            return self.bets_total(p)
+        if self.phase == "spin":
+            return p.pending
+        return 0
 
     def on_message(self, p, mtype, msg):
         if mtype not in ("casino_bet", "casino_clear", "casino_rebet"):
@@ -479,6 +498,11 @@ class BlackjackTable(BaseTable):
     def refundable(self, p):
         return p.chips + p.bet if self.phase == "betting" else p.chips
 
+    def at_stake(self, p):
+        if self.phase == "betting" or (self.phase in ("playing", "dealer") and p.in_round):
+            return p.bet
+        return 0
+
     def reset_idle(self):
         self.dealer = []
         self.hole_hidden = True
@@ -740,6 +764,103 @@ class BlackjackTable(BaseTable):
         }
 
 
+
+# ============================ ИГРОВОЙ АВТОМАТ =================================
+# Тянете ручку — выпадают 3 символа. Три одинаковых платят по ценности символа
+# (чем реже символ, тем больше множитель), два одинаковых — меньший приз.
+
+SLOT_SYMS = ["cherry", "lemon", "bell", "star", "diamond", "seven"]
+SLOT_WEIGHTS = [30, 25, 20, 13, 8, 4]
+SLOT_X3 = {"cherry": 5, "lemon": 8, "bell": 15, "star": 30, "diamond": 80, "seven": 300}
+SLOT_X2 = {"cherry": 0.5, "lemon": 0.8, "bell": 1, "star": 1.5, "diamond": 2, "seven": 5}
+SLOT_MAX_BET = 10000
+
+
+def slot_payout(reels, bet):
+    if reels[0] == reels[1] == reels[2]:
+        return int(bet * SLOT_X3[reels[0]])
+    for s in set(reels):
+        if reels.count(s) == 2:
+            return int(bet * SLOT_X2[s])
+    return 0
+
+
+def slot_rtp():
+    tot = float(sum(SLOT_WEIGHTS))
+    p = {k: w / tot for k, w in zip(SLOT_SYMS, SLOT_WEIGHTS)}
+    return sum(p[k] ** 3 * SLOT_X3[k] + 3 * p[k] ** 2 * (1 - p[k]) * SLOT_X2[k] for k in SLOT_SYMS)
+
+
+class SlotsTable(BaseTable):
+    """Личный автомат: за каждым игроком свой «стол» из одного места."""
+    game = "slots"
+    max_players = 1
+    soft_cap = 1
+    SPIN_SEC = 2.8
+
+    def __init__(self, num):
+        super().__init__(num)
+        self.reels = None
+        self.bet = 0
+        self.pending = 0
+        self.last_win = 0
+        self.round_no = 0
+        self.history = []
+        self.set_phase("idle", 0)
+
+    def refundable(self, p):
+        return p.chips + (self.pending if self.phase == "spin" else 0)
+
+    def at_stake(self, p):
+        return self.pending if self.phase == "spin" else 0
+
+    def on_message(self, p, mtype, msg):
+        if mtype != "casino_spin":
+            return False
+        if self.phase != "idle":
+            return False
+        amount = clamp_int(msg.get("amount"), 0, SLOT_MAX_BET)
+        if amount <= 0:
+            return False
+        if amount > p.chips:
+            self.err(p, "Недостаточно фишек")
+            return False
+        p.chips -= amount
+        self.bet = amount
+        self.reels = RNG.choices(SLOT_SYMS, weights=SLOT_WEIGHTS, k=3)
+        self.pending = slot_payout(self.reels, amount)
+        self.last_win = 0
+        self.round_no += 1
+        self.set_phase("spin", self.SPIN_SEC)
+        return True
+
+    def tick(self, t):
+        if self.phase == "spin" and t >= self.deadline:
+            for p in self.players.values():
+                p.chips += self.pending
+            self.last_win = self.pending - self.bet
+            self.history.append({"reels": self.reels, "bet": self.bet, "win": self.pending})
+            self.history = self.history[-8:]
+            self.pending = 0
+            self.set_phase("idle", 0, t)
+            return True
+        return False
+
+    def state_for(self, p):
+        return {
+            "game": self.game, "table": self.name, "table_id": self.id,
+            "phase": self.phase, "remaining": round(self.remaining(), 2),
+            "phase_total": self.phase_total, "round_no": self.round_no,
+            "max_players": self.max_players, "players": [],
+            "reels": self.reels, "bet": self.bet,
+            "win": self.last_win if self.phase == "idle" else 0,
+            "history": list(self.history),
+            "paytable": {"syms": SLOT_SYMS, "x3": SLOT_X3, "x2": SLOT_X2},
+            "max_bet": SLOT_MAX_BET,
+            "you": {"seat": p.seat, "chips": p.chips, "safe_chips": self.refundable(p)},
+        }
+
+
 # ============================ менеджер столов ================================
 
 class Casino:
@@ -747,6 +868,7 @@ class Casino:
         "roulette": RouletteTable,
         "axes": AxesTable,
         "blackjack": BlackjackTable,
+        "slots": SlotsTable,
     }
 
     def __init__(self):
@@ -802,6 +924,19 @@ class Casino:
                         except Exception:
                             traceback.print_exc()
 
+    def at_stake(self):
+        """{имя_в_нижнем_регистре: фишки на кону} по всем столам казино."""
+        out = {}
+        with self.lock:
+            for tables in self.tables.values():
+                for t in tables.values():
+                    for p in t.players.values():
+                        v = t.at_stake(p)
+                        if v:
+                            k = p.name.lower()
+                            out[k] = out.get(k, 0) + v
+        return out
+
     def stats(self):
         with self.lock:
             return {g: {"players": sum(len(t.players) for t in ts.values()),
@@ -828,14 +963,7 @@ class Casino:
             if not p:
                 return
             try:
-                if mtype == "casino_topup":
-                    if p.chips < TOPUP_BELOW and not getattr(p, "bets", None) and p.bet == 0:
-                        p.chips += TOPUP_AMOUNT
-                        changed = True
-                    else:
-                        changed = False
-                else:
-                    changed = table.on_message(p, mtype, msg)
+                changed = table.on_message(p, mtype, msg)
             except Exception:
                 traceback.print_exc()
                 changed = False
@@ -849,10 +977,12 @@ class Casino:
             return
         if h.pid in self.where:
             self.leave(h, notify=False)
-        name = str(msg.get("name") or "Игрок").strip()[:16] or "Игрок"
-        chips = clamp_int(msg.get("chips"), 0, 10 ** 9, 0)
+        acc = getattr(h, "account", None)
+        if acc is None:
+            safe_send(h, {"type": "auth_required"})
+            return
         table = self.pick_table(game)
-        p = table.add_player(h.pid, name, chips, h)
+        p = table.add_player(h.pid, acc, h)
         if p is None:
             safe_send(h, {"type": "casino_error", "message": "Нет свободных мест"})
             return
@@ -871,6 +1001,9 @@ class Casino:
             game, tid = loc
             table = self.tables[game].get(tid)
             chips = table.remove_player(h.pid) if table else None
+            acc = getattr(h, "account", None)
+            if acc:
+                acc.push()
             if notify:
                 safe_send(h, {"type": "casino_left", "chips": chips})
             if table:
